@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { LanguageIconButton, useLanguage } from './LanguageProvider';
 import { ThemeIconButton } from './ThemeProvider';
@@ -11,7 +10,6 @@ interface AuthFormProps {
 }
 
 export function AuthForm({ initialMode }: AuthFormProps) {
-  const router = useRouter();
   const { t } = useLanguage();
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [name, setName] = useState('');
@@ -50,6 +48,8 @@ export function AuthForm({ initialMode }: AuthFormProps) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
         body: JSON.stringify(payload),
       });
 
@@ -60,8 +60,7 @@ export function AuthForm({ initialMode }: AuthFormProps) {
         return;
       }
 
-      router.push('/');
-      router.refresh();
+      window.location.replace('/');
     } catch {
       setError(t.auth.networkError);
       setLoading(false);

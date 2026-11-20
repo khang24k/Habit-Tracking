@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut } from 'lucide-react';
+import { Loader2, LogOut } from 'lucide-react';
 import { getStreakLevelInfo } from '@/lib/streaks';
 import { LanguageIconButton, useLanguage } from './LanguageProvider';
 import { ThemeIconButton } from './ThemeProvider';
@@ -9,6 +9,7 @@ interface StreakBannerProps {
   currentStreak: number;
   bestStreak: number;
   onLogout?: () => void;
+  loggingOut?: boolean;
 }
 
 function BurningFlame({
@@ -134,6 +135,7 @@ export function StreakBanner({
   currentStreak,
   bestStreak,
   onLogout,
+  loggingOut = false,
 }: StreakBannerProps) {
   const { t } = useLanguage();
   const info = getStreakLevelInfo(currentStreak);
@@ -195,11 +197,16 @@ export function StreakBanner({
             <button
               type="button"
               onClick={onLogout}
+              disabled={loggingOut}
               aria-label={t.nav.logout}
               title={t.nav.logout}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-white text-slate-600 transition hover:bg-rose-50 hover:text-rose-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 dark:hover:text-rose-300"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-200 bg-white text-slate-600 transition hover:bg-rose-50 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700 dark:hover:text-rose-300"
             >
-              <LogOut className="h-4 w-4" />
+              {loggingOut ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="h-4 w-4" />
+              )}
             </button>
           )}
         </div>

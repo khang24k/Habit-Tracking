@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { withAutoSchema } from '@/db/bootstrap';
 import { tasks } from '@/db/schema';
-import { handleApiError, requireUser } from '@/lib/api-helpers';
+import { handleApiError, requireSession, requireUser } from '@/lib/api-helpers';
+import { refreshSessionIfNeeded } from '@/lib/session';
 import {
   CATEGORY_KEYS,
   PRIORITIES,
@@ -18,7 +19,8 @@ export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
   try {
-    const user = await requireUser();
+    const session = await requireSession();
+    const user = session.user;
     const { searchParams } = new URL(request.url);
 
     const q = searchParams.get('q')?.trim().toLowerCase() ?? '';
@@ -84,7 +86,12 @@ export async function GET(request: Request) {
       return b.createdAt.getTime() - a.createdAt.getTime();
     });
 
-    return NextResponse.json({ tasks: filtered });
+    const response = NextResponse.json(
+      { tasks: filtered },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+    await refreshSessionIfNeeded(session, request, response);
+    return response;
   } catch (err) {
     return handleApiError(err);
   }

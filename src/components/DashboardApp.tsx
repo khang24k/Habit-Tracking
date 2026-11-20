@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   BarChart3,
   CalendarCheck,
@@ -49,7 +48,6 @@ function isTransientHttpStatus(status: number): boolean {
 }
 
 export function DashboardApp({ initialUser }: DashboardAppProps) {
-  const router = useRouter();
   const { t } = useLanguage();
   const tRef = useRef(t);
   tRef.current = t;
@@ -80,6 +78,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
@@ -93,6 +92,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryAttemptRef = useRef(0);
   const unmountedRef = useRef(false);
+  const loggingOutRef = useRef(false);
   const drainResolversRef = useRef<Array<() => void>>([]);
   const tempToServerIdRef = useRef<Map<string, string>>(new Map());
 
@@ -135,21 +135,27 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
     }
   }, []);
 
+  const redirectToLogin = useCallback(() => {
+    loggingOutRef.current = true;
+    window.location.replace('/login');
+  }, []);
+
   const loadAllData = useCallback(
     async (today: string) => {
       try {
         const [tasksRes, habitsRes] = await Promise.all([
           fetch(`/api/tasks?today=${encodeURIComponent(today)}`, {
             cache: 'no-store',
+            credentials: 'same-origin',
           }),
           fetch(
             `/api/habits?today=${encodeURIComponent(today)}&includeArchived=true`,
-            { cache: 'no-store' },
+            { cache: 'no-store', credentials: 'same-origin' },
           ),
         ]);
 
         if (tasksRes.status === 401 || habitsRes.status === 401) {
-          router.push('/login');
+          redirectToLogin();
           return;
         }
 
@@ -197,7 +203,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
         setLoading(false);
       }
     },
-    [initialUser.id, router, setHabitsSynced, setTasksSynced],
+    [initialUser.id, redirectToLogin, setHabitsSynced, setTasksSynced],
   );
 
   const drainQueueRef = useRef<() => Promise<void>>(async () => {});
@@ -269,6 +275,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
               res = await fetch('/api/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify(op.payload),
               });
               break;
@@ -276,12 +283,14 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
               res = await fetch(`/api/tasks/${op.taskId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify(op.patch),
               });
               break;
             case 'task:delete':
               res = await fetch(`/api/tasks/${op.taskId}`, {
                 method: 'DELETE',
+                credentials: 'same-origin',
               });
               break;
             case 'habit:create':
@@ -290,6 +299,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
+                  credentials: 'same-origin',
                   body: JSON.stringify(op.payload),
                 },
               );
@@ -300,6 +310,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
                 {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
+                  credentials: 'same-origin',
                   body: JSON.stringify(op.patch),
                 },
               );
@@ -310,6 +321,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
+                  credentials: 'same-origin',
                   body: JSON.stringify({
                     date: op.date,
                     completed: op.completed,
@@ -320,6 +332,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
             case 'habit:delete':
               res = await fetch(`/api/habits/${op.habitId}`, {
                 method: 'DELETE',
+                credentials: 'same-origin',
               });
               break;
           }
@@ -348,7 +361,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
         if (res.status === 401) {
           inFlightOpIdRef.current = null;
           setIsRetrying(false);
-          router.push('/login');
+          redirectToLogin();
           return;
         }
 
@@ -582,8 +595,8 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
   }, [
     initialUser.id,
     loadAllData,
+    redirectToLogin,
     resolveDrainWaiters,
-    router,
     setHabitsSynced,
     setTasksSynced,
   ]);
@@ -690,7 +703,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
     }
 
     function handleBeforeUnload(event: BeforeUnloadEvent) {
-      if (queueRef.current.length > 0) {
+      if (!loggingOutRef.current && queueRef.current.length > 0) {
         event.preventDefault();
         event.returnValue = '';
       }
@@ -733,24 +746,46 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
   }, [todayKey, loadAllData, scheduleDrain]);
 
   async function handleLogout() {
-    if (
-      queueRef.current.length > 0 &&
-      (typeof navigator === 'undefined' || navigator.onLine)
-    ) {
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          drainResolversRef.current.push(resolve);
-          triggerImmediateDrain();
-          if (queueRef.current.length === 0 && !workerActiveRef.current) {
-            resolve();
-          }
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, 1500)),
-      ]);
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+    setIsLoggingOut(true);
+
+    try {
+      if (
+        queueRef.current.length > 0 &&
+        (typeof navigator === 'undefined' || navigator.onLine)
+      ) {
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            drainResolversRef.current.push(resolve);
+            triggerImmediateDrain();
+            if (queueRef.current.length === 0 && !workerActiveRef.current) {
+              resolve();
+            }
+          }),
+          new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      }
+
+      if (coalesceTimerRef.current) {
+        clearTimeout(coalesceTimerRef.current);
+        coalesceTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        cache: 'no-store',
+      });
+    } catch {
+      // Vẫn chuyển về trang đăng nhập dù request logout gặp lỗi mạng
+    } finally {
+      window.location.replace('/login');
     }
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/login');
-    router.refresh();
   }
 
   async function handleSaveTask(payload: TaskFormPayload, taskId?: string) {
@@ -1115,6 +1150,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
             currentStreak={currentMaxStreak}
             bestStreak={bestMaxStreak}
             onLogout={handleLogout}
+            loggingOut={isLoggingOut}
           />
 
           {pendingCount > 0 && (!isOnline || isRetrying) && (

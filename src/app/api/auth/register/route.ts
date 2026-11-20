@@ -5,10 +5,11 @@ import { withAutoSchema } from '@/db/bootstrap';
 import { users } from '@/db/schema';
 import { handleApiError } from '@/lib/api-helpers';
 import { hashPassword } from '@/lib/auth';
-import { createSession } from '@/lib/session';
+import { attachSessionCookie, createSession } from '@/lib/session';
 import { registerSchema } from '@/lib/validation';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
@@ -56,8 +57,10 @@ export async function POST(request: Request) {
       );
     }
 
-    await createSession(createdUser.id);
-    return NextResponse.json({ user: createdUser }, { status: 201 });
+    const session = await createSession(createdUser.id);
+    const response = NextResponse.json({ user: createdUser }, { status: 201 });
+    attachSessionCookie(response, session.token, request);
+    return response;
   } catch (err) {
     if (
       err &&

@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { DatabaseNotConfiguredError, isDatabaseConfigured } from '@/db';
-import { getCurrentUser, type PublicUser } from './session';
+import {
+  getCurrentSession,
+  getCurrentUser,
+  type CurrentSession,
+  type PublicUser,
+} from './session';
 
 export class UnauthorizedError extends Error {
   constructor(message = 'Bạn cần đăng nhập để thực hiện thao tác này.') {
@@ -15,6 +20,17 @@ export class NotFoundError extends Error {
     super(message);
     this.name = 'NotFoundError';
   }
+}
+
+export async function requireSession(): Promise<CurrentSession> {
+  if (!isDatabaseConfigured()) {
+    throw new DatabaseNotConfiguredError();
+  }
+  const session = await getCurrentSession();
+  if (!session) {
+    throw new UnauthorizedError();
+  }
+  return session;
 }
 
 export async function requireUser(): Promise<PublicUser> {
