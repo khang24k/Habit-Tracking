@@ -123,14 +123,14 @@ export function TodayView({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       {/* Tiêu đề ngày & điều hướng */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-sky-700 dark:text-neutral-300">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-medium text-sky-700 dark:text-neutral-300">
             {t.today.greeting}, {userName}
           </p>
-          <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
+          <h1 className="mt-0.5 break-words text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
             {isViewingToday ? t.today.titleToday : t.today.titleOtherDay}
           </h1>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500 dark:text-neutral-400">
@@ -226,7 +226,7 @@ export function TodayView({
         className="rounded-xl border border-sky-200/80 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
-          <div className="flex flex-1 items-center gap-2.5 px-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2">
             <Plus className="h-5 w-5 shrink-0 text-sky-600 dark:text-neutral-300" />
             <input
               type="text"
@@ -243,7 +243,7 @@ export function TodayView({
             <select
               value={quickCategory}
               onChange={(e) => setQuickCategory(e.target.value as CategoryKey)}
-              className="rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
             >
               {CATEGORY_KEYS.map((key) => (
                 <option key={key} value={key}>
@@ -255,7 +255,7 @@ export function TodayView({
             <select
               value={quickPriority}
               onChange={(e) => setQuickPriority(e.target.value as PriorityKey)}
-              className="rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
             >
               {PRIORITY_KEYS.map((key) => (
                 <option key={key} value={key}>
@@ -276,9 +276,9 @@ export function TodayView({
       </form>
 
       {/* Hai cột chính */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         {/* Thói quen lặp lại */}
-        <section className="rounded-xl border border-sky-200/80 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+        <section className="min-w-0 rounded-xl border border-sky-200/80 bg-white p-4 sm:p-5 dark:border-neutral-800 dark:bg-neutral-900">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Repeat className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
@@ -364,16 +364,16 @@ export function TodayView({
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <p
-                              className={`font-semibold text-slate-800 dark:text-neutral-100 ${
+                              className={`break-words font-semibold text-slate-800 dark:text-neutral-100 ${
                                 isDone ? 'line-through opacity-70' : ''
                               }`}
                             >
                               {habit.title}
                             </p>
                             {habit.description && (
-                              <p className="mt-0.5 text-xs text-slate-500 dark:text-neutral-400">
+                              <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-neutral-400">
                                 {habit.description}
                               </p>
                             )}
@@ -451,7 +451,7 @@ export function TodayView({
         </section>
 
         {/* Nhiệm vụ trong ngày */}
-        <section className="rounded-xl border border-sky-200/80 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+        <section className="min-w-0 rounded-xl border border-sky-200/80 bg-white p-4 sm:p-5 dark:border-neutral-800 dark:bg-neutral-900">
           <div className="flex items-center gap-2">
             <Check className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
             <h2 className="font-bold text-slate-800 dark:text-neutral-100">
@@ -494,14 +494,14 @@ export function TodayView({
 
                   <div className="min-w-0 flex-1">
                     <p
-                      className={`text-sm font-medium text-slate-800 dark:text-neutral-100 ${
+                      className={`break-words text-sm font-medium text-slate-800 dark:text-neutral-100 ${
                         task.completed ? 'line-through text-slate-400 dark:text-neutral-500' : ''
                       }`}
                     >
                       {task.title}
                     </p>
                     {task.notes && (
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-neutral-400">
+                      <p className="mt-1 line-clamp-2 break-words text-xs text-slate-500 dark:text-neutral-400">
                         {task.notes}
                       </p>
                     )}

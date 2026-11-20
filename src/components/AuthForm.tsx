@@ -69,7 +69,7 @@ export function AuthForm({ initialMode }: AuthFormProps) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f2f8fd] px-4 py-10 dark:bg-neutral-950">
+    <div className="flex min-h-dvh w-full max-w-full items-center justify-center overflow-x-clip bg-[#f2f8fd] px-4 py-10 dark:bg-neutral-950">
       <div className="w-full max-w-sm rounded-xl border border-sky-200/80 bg-white p-6 shadow-xs sm:p-7 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex items-center justify-between gap-2">
           <div className="inline-flex rounded-lg border border-sky-100 bg-sky-50/80 p-0.5 dark:border-neutral-700 dark:bg-neutral-800">

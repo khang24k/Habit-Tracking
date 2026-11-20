@@ -22,7 +22,7 @@ function BurningFlame({
     return (
       <svg
         viewBox="0 0 64 72"
-        className="h-14 w-12 shrink-0"
+        className="h-12 w-10 shrink-0 sm:h-14 sm:w-12"
         aria-hidden="true"
       >
         <path
@@ -66,7 +66,7 @@ function BurningFlame({
   return (
     <svg
       viewBox="0 0 64 72"
-      className="h-14 w-12 shrink-0 overflow-visible"
+      className="h-12 w-10 shrink-0 overflow-visible sm:h-14 sm:w-12"
       aria-hidden="true"
     >
       <g className="animate-flame-sway">
@@ -153,11 +153,11 @@ export function StreakBanner({
   return (
     <section
       aria-label={t.streak.title}
-      className={`mb-6 rounded-xl border p-4 sm:p-5 ${tierSurfaceClass}`}
+      className={`mb-6 w-full min-w-0 overflow-x-clip rounded-xl border p-4 sm:p-5 ${tierSurfaceClass}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <div className="flex h-16 w-14 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50/70 dark:border-neutral-700 dark:bg-neutral-800">
+      <div className="flex items-start justify-between gap-2.5 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
+          <div className="flex h-14 w-12 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50/70 sm:h-16 sm:w-14 dark:border-neutral-700 dark:bg-neutral-800">
             <BurningFlame level={info.level} active={info.streakDays > 0} />
           </div>
 

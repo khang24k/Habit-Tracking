@@ -112,7 +112,7 @@ export function TasksView({
   }, [filteredTasks, todayKey, tomorrowKey, t.tasks.groups]);
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
@@ -136,7 +136,7 @@ export function TasksView({
       {/* Bộ lọc & Tìm kiếm */}
       <div className="flex flex-col gap-3 rounded-xl border border-sky-200/80 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-col gap-3 md:flex-row">
-          <div className="relative flex-1">
+          <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-neutral-500" />
             <input
               type="text"
@@ -153,7 +153,7 @@ export function TasksView({
               onChange={(e) =>
                 setCategoryFilter(e.target.value as CategoryKey | 'all')
               }
-              className="rounded-lg border border-sky-200 bg-sky-50/40 px-3 py-2 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/40 px-3 py-2 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
             >
               <option value="all">{t.tasks.allCategories}</option>
               {CATEGORY_KEYS.map((key) => (
@@ -168,7 +168,7 @@ export function TasksView({
               onChange={(e) =>
                 setPriorityFilter(e.target.value as PriorityKey | 'all')
               }
-              className="rounded-lg border border-sky-200 bg-sky-50/40 px-3 py-2 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/40 px-3 py-2 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
             >
               <option value="all">{t.tasks.allPriorities}</option>
               {PRIORITY_KEYS.map((key) => (
@@ -248,14 +248,14 @@ export function TasksView({
 
                       <div className="min-w-0 flex-1">
                         <p
-                          className={`text-sm font-medium text-slate-800 dark:text-neutral-100 ${
+                          className={`break-words text-sm font-medium text-slate-800 dark:text-neutral-100 ${
                             task.completed ? 'line-through opacity-60' : ''
                           }`}
                         >
                           {task.title}
                         </p>
                         {task.notes && (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                          <p className="mt-1 break-words text-xs text-slate-500 dark:text-neutral-400">
                             {task.notes}
                           </p>
                         )}

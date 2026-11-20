@@ -311,7 +311,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
   );
 
   return (
-    <div className="min-h-screen bg-[#f2f8fd] pb-20 md:flex md:pb-0 dark:bg-neutral-950">
+    <div className="min-h-dvh w-full max-w-full overflow-x-clip bg-[#f2f8fd] pb-[calc(5rem+env(safe-area-inset-bottom))] md:flex md:pb-0 dark:bg-neutral-950">
       {/* Thanh điều hướng bên trái (không header, không tên ứng dụng) */}
       <aside className="hidden w-60 shrink-0 flex-col justify-between border-r border-sky-200/70 bg-white p-5 md:flex dark:border-neutral-800 dark:bg-neutral-900">
         <div>
@@ -376,8 +376,8 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
       </aside>
 
       {/* Nội dung chính (Streak + 3 biểu tượng góc trên bên phải) */}
-      <main className="flex-1 px-4 py-5 sm:px-8 sm:py-7">
-        <div className="mx-auto max-w-5xl">
+      <main className="w-full min-w-0 flex-1 px-4 py-5 sm:px-8 sm:py-7">
+        <div className="mx-auto w-full min-w-0 max-w-5xl">
           <StreakBanner
             currentStreak={currentMaxStreak}
             bestStreak={bestMaxStreak}
@@ -483,7 +483,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
       </main>
 
       {/* Thanh điều hướng dưới cùng trên di động */}
-      <nav className="fixed right-0 bottom-0 left-0 z-30 grid grid-cols-4 border-t border-sky-200/80 bg-white py-1.5 md:hidden dark:border-neutral-800 dark:bg-neutral-900">
+      <nav className="fixed right-0 bottom-0 left-0 z-30 grid w-full grid-cols-4 border-t border-sky-200/80 bg-white pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] md:hidden dark:border-neutral-800 dark:bg-neutral-900">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.key;

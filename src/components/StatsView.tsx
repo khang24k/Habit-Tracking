@@ -55,7 +55,7 @@ export function StatsView({ stats }: StatsViewProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
           {t.stats.title}
@@ -132,7 +132,7 @@ export function StatsView({ stats }: StatsViewProps) {
       </div>
 
       {/* Heatmap 12 tuần (84 ngày) */}
-      <section className="rounded-xl border border-sky-200/80 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-sky-200/80 bg-white p-4 sm:p-6 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-slate-800 dark:text-neutral-100">
@@ -152,10 +152,10 @@ export function StatsView({ stats }: StatsViewProps) {
           </div>
         </div>
 
-        <div className="mt-5 overflow-x-auto pb-1">
-          <div className="inline-grid grid-cols-12 gap-2">
+        <div className="mt-5 w-full overflow-x-auto pb-1">
+          <div className="inline-grid grid-cols-12 gap-1 sm:gap-2">
             {weeks.map((week, wIdx) => (
-              <div key={wIdx} className="grid grid-rows-7 gap-2">
+              <div key={wIdx} className="grid grid-rows-7 gap-1 sm:gap-2">
                 {week.map((day) => (
                   <div
                     key={day.date}
@@ -164,7 +164,7 @@ export function StatsView({ stats }: StatsViewProps) {
                       day.habitsCompleted,
                       day.tasksCompleted,
                     )}
-                    className={`h-5 w-5 rounded-sm border border-sky-100/80 transition hover:ring-2 hover:ring-sky-400 sm:h-6 sm:w-6 dark:border-neutral-800 dark:hover:ring-neutral-400 ${getHeatmapColor(day.total)}`}
+                    className={`h-4 w-4 rounded-sm border border-sky-100/80 transition hover:ring-2 hover:ring-sky-400 sm:h-6 sm:w-6 dark:border-neutral-800 dark:hover:ring-neutral-400 ${getHeatmapColor(day.total)}`}
                   />
                 ))}
               </div>
@@ -174,7 +174,7 @@ export function StatsView({ stats }: StatsViewProps) {
       </section>
 
       {/* Chi tiết độ ổn định từng thói quen */}
-      <section className="rounded-xl border border-sky-200/80 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="min-w-0 rounded-xl border border-sky-200/80 bg-white p-4 sm:p-6 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="font-bold text-slate-800 dark:text-neutral-100">
           {t.stats.habitDetailTitle}
         </h2>
@@ -190,9 +190,9 @@ export function StatsView({ stats }: StatsViewProps) {
               return (
                 <div key={h.id} className="space-y-1.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2.5 w-2.5 rounded-xs ${theme.bg}`} />
-                      <span className="font-semibold text-slate-800 dark:text-neutral-100">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-xs ${theme.bg}`} />
+                      <span className="font-semibold break-words text-slate-800 dark:text-neutral-100">
                         {h.title}
                       </span>
                       <span className="text-xs text-slate-400 dark:text-neutral-500">

@@ -84,7 +84,7 @@ export function HabitsView({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
@@ -168,7 +168,7 @@ export function HabitsView({
           </div>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
           {habits.map((habit) => {
             const theme = HABIT_COLORS[habit.color] ?? HABIT_COLORS.blue;
             const doneToday = habit.completedDates.includes(todayKey);
@@ -176,7 +176,7 @@ export function HabitsView({
             return (
               <div
                 key={habit.id}
-                className={`rounded-xl border bg-white p-5 transition dark:bg-neutral-900 ${
+                className={`min-w-0 rounded-xl border bg-white p-4 transition sm:p-5 dark:bg-neutral-900 ${
                   habit.archived
                     ? 'border-sky-100 opacity-70 dark:border-neutral-800/70'
                     : 'border-sky-200/80 dark:border-neutral-800'
@@ -198,7 +198,7 @@ export function HabitsView({
                       )}
                     </div>
                     {habit.description && (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
+                      <p className="mt-1 break-words text-xs text-slate-500 dark:text-neutral-400">
                         {habit.description}
                       </p>
                     )}
@@ -259,29 +259,33 @@ export function HabitsView({
 
                 {/* 3 chỉ số Streak */}
                 <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg border border-sky-100 bg-sky-50/50 p-3 dark:border-neutral-800 dark:bg-neutral-800/70">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] text-slate-500 dark:text-neutral-400">
                       {t.habits.currentLabel}
                     </p>
-                    <p className="mt-0.5 flex items-center gap-1 text-base font-bold text-slate-800 dark:text-neutral-100">
-                      <Flame className="h-4 w-4 text-orange-500" />
-                      {habit.stats.currentStreak} {t.habits.daysUnit}
+                    <p className="mt-0.5 flex items-center gap-1 text-sm font-bold text-slate-800 sm:text-base dark:text-neutral-100">
+                      <Flame className="h-4 w-4 shrink-0 text-orange-500" />
+                      <span className="truncate">
+                        {habit.stats.currentStreak} {t.habits.daysUnit}
+                      </span>
                     </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] text-slate-500 dark:text-neutral-400">
                       {t.habits.longestLabel}
                     </p>
-                    <p className="mt-0.5 flex items-center gap-1 text-base font-bold text-slate-800 dark:text-neutral-100">
-                      <Trophy className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
-                      {habit.stats.longestStreak} {t.habits.daysUnit}
+                    <p className="mt-0.5 flex items-center gap-1 text-sm font-bold text-slate-800 sm:text-base dark:text-neutral-100">
+                      <Trophy className="h-4 w-4 shrink-0 text-sky-600 dark:text-neutral-300" />
+                      <span className="truncate">
+                        {habit.stats.longestStreak} {t.habits.daysUnit}
+                      </span>
                     </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] text-slate-500 dark:text-neutral-400">
                       {t.habits.rate30dLabel}
                     </p>
-                    <p className="mt-0.5 text-base font-bold text-slate-800 dark:text-neutral-100">
+                    <p className="mt-0.5 text-sm font-bold text-slate-800 sm:text-base dark:text-neutral-100">
                       {habit.stats.completionRate30d}%
                     </p>
                   </div>
@@ -317,7 +321,7 @@ export function HabitsView({
                           type="button"
                           title={`${label} ${formatShortDate(day.date)}`}
                           onClick={() => onToggleHabit(habit.id, day.date)}
-                          className={`flex flex-col items-center justify-center rounded-md py-1.5 text-[10px] font-semibold transition ${
+                          className={`flex min-w-0 flex-col items-center justify-center rounded-md py-1.5 text-[10px] font-semibold transition ${
                             day.completed
                               ? `${theme.bg} text-white dark:text-neutral-900`
                               : day.scheduled

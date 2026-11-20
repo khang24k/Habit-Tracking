@@ -148,7 +148,7 @@ export function HabitModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-sky-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
+        className="max-h-[92dvh] w-full max-w-lg overflow-x-hidden overflow-y-auto rounded-xl border border-sky-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold text-slate-800 dark:text-neutral-100">
@@ -245,14 +245,14 @@ export function HabitModal({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-slate-700 dark:text-neutral-300">
                 {t.habitModal.categoryLabel}
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value as CategoryKey)}
-                className="mt-1.5 w-full rounded-lg border border-sky-200 bg-sky-50/30 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-500 dark:focus:bg-neutral-800"
+                className="mt-1.5 w-full min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/30 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-500 dark:focus:bg-neutral-800"
               >
                 {CATEGORY_KEYS.map((key) => (
                   <option key={key} value={key}>
@@ -262,7 +262,7 @@ export function HabitModal({
               </select>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-slate-700 dark:text-neutral-300">
                 {t.habitModal.reminderLabel}
               </label>
@@ -270,7 +270,7 @@ export function HabitModal({
                 type="time"
                 value={reminderTime}
                 onChange={(e) => setReminderTime(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-sky-200 bg-sky-50/30 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-500 dark:focus:bg-neutral-800"
+                className="mt-1.5 w-full min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/30 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-sky-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-500 dark:focus:bg-neutral-800"
               />
             </div>
           </div>

@@ -60,7 +60,7 @@ export function SetupGuide() {
   const { t } = useLanguage();
 
   return (
-    <div className="min-h-screen bg-[#f2f8fd] px-4 py-10 dark:bg-neutral-950">
+    <div className="min-h-dvh w-full max-w-full overflow-x-clip bg-[#f2f8fd] px-4 py-10 dark:bg-neutral-950">
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex items-center justify-between gap-2">
           <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-neutral-700 dark:bg-neutral-800 dark:text-amber-300">
@@ -86,7 +86,7 @@ export function SetupGuide() {
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700 dark:bg-neutral-800 dark:text-neutral-200">
                   <Database className="h-4 w-4" />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <h2 className="font-semibold text-slate-800 dark:text-neutral-100">
                     {t.setup.step1Title}
                   </h2>
@@ -111,7 +111,7 @@ export function SetupGuide() {
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-neutral-800 dark:text-neutral-200">
                   <Terminal className="h-4 w-4" />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <h2 className="font-semibold text-slate-800 dark:text-neutral-100">
                     {t.setup.step2Title}
                   </h2>
@@ -135,7 +135,7 @@ export function SetupGuide() {
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-700 dark:bg-neutral-800 dark:text-neutral-200">
                   <Rocket className="h-4 w-4" />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <h2 className="font-semibold text-slate-800 dark:text-neutral-100">
                     {t.setup.step3Title}
                   </h2>
