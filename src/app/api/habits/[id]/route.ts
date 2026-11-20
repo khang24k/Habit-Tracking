@@ -21,6 +21,7 @@ export async function PATCH(
     const habitId = uuidSchema.parse(id);
 
     const { searchParams } = new URL(request.url);
+    const compact = searchParams.get('compact') === '1';
     const todayParam = searchParams.get('today') ?? '';
     const today = isValidDateKey(todayParam)
       ? todayParam
@@ -31,6 +32,53 @@ export async function PATCH(
 
     const result = await withAutoSchema(async () => {
       const db = getDb();
+      const baseUpdates: Partial<typeof habits.$inferInsert> = {
+        updatedAt: new Date(),
+      };
+      if (parsed.title !== undefined) baseUpdates.title = parsed.title;
+      if (parsed.description !== undefined)
+        baseUpdates.description = parsed.description;
+      if (parsed.category !== undefined) baseUpdates.category = parsed.category;
+      if (parsed.color !== undefined) baseUpdates.color = parsed.color;
+      if (parsed.reminderTime !== undefined)
+        baseUpdates.reminderTime = parsed.reminderTime;
+      if (parsed.archived !== undefined) baseUpdates.archived = parsed.archived;
+
+      if (compact) {
+        const directDays =
+          parsed.frequency !== undefined
+            ? daysOfWeekForFrequency(
+                parsed.frequency as FrequencyKey,
+                parsed.daysOfWeek,
+              )
+            : undefined;
+
+        const canUpdateDirectly =
+          (parsed.frequency === undefined && parsed.daysOfWeek === undefined) ||
+          (parsed.frequency !== undefined &&
+            directDays !== undefined &&
+            directDays.length > 0);
+
+        if (canUpdateDirectly) {
+          if (parsed.frequency !== undefined && directDays) {
+            baseUpdates.frequency = parsed.frequency;
+            baseUpdates.daysOfWeek = directDays;
+          }
+
+          const [updated] = await db
+            .update(habits)
+            .set(baseUpdates)
+            .where(and(eq(habits.id, habitId), eq(habits.userId, user.id)))
+            .returning();
+
+          if (!updated) {
+            return null;
+          }
+
+          return { ok: true as const, habit: updated };
+        }
+      }
+
       const [existing] = await db
         .select()
         .from(habits)
@@ -56,24 +104,20 @@ export async function PATCH(
       }
 
       const updates: Partial<typeof habits.$inferInsert> = {
-        updatedAt: new Date(),
+        ...baseUpdates,
         frequency: nextFrequency,
         daysOfWeek: nextDaysOfWeek,
       };
-      if (parsed.title !== undefined) updates.title = parsed.title;
-      if (parsed.description !== undefined)
-        updates.description = parsed.description;
-      if (parsed.category !== undefined) updates.category = parsed.category;
-      if (parsed.color !== undefined) updates.color = parsed.color;
-      if (parsed.reminderTime !== undefined)
-        updates.reminderTime = parsed.reminderTime;
-      if (parsed.archived !== undefined) updates.archived = parsed.archived;
 
       const [updated] = await db
         .update(habits)
         .set(updates)
         .where(and(eq(habits.id, habitId), eq(habits.userId, user.id)))
         .returning();
+
+      if (compact) {
+        return { ok: true as const, habit: updated };
+      }
 
       const completionRows = await db
         .select({ completedDate: habitCompletions.completedDate })
@@ -88,9 +132,12 @@ export async function PATCH(
       );
 
       return {
-        ...updated,
-        completedDates,
-        stats,
+        ok: false as const,
+        habit: {
+          ...updated,
+          completedDates,
+          stats,
+        },
       };
     });
 
@@ -98,7 +145,9 @@ export async function PATCH(
       throw new NotFoundError('Không tìm thấy thói quen.');
     }
 
-    return NextResponse.json({ habit: result });
+    return NextResponse.json(
+      result.ok ? { ok: true, habit: result.habit } : { habit: result.habit },
+    );
   } catch (err) {
     return handleApiError(err);
   }

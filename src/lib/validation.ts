@@ -183,4 +183,5 @@ export const updateHabitSchema = z
 
 export const toggleHabitSchema = z.object({
   date: dateKeySchema,
+  completed: z.boolean().optional(),
 });

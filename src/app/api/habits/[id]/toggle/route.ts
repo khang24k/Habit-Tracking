@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
-import { getDb } from '@/db';
+import { getDb, getSql } from '@/db';
 import { withAutoSchema } from '@/db/bootstrap';
 import { habitCompletions, habits } from '@/db/schema';
 import { NotFoundError, handleApiError, requireUser } from '@/lib/api-helpers';
@@ -20,15 +20,52 @@ export async function POST(
     const habitId = uuidSchema.parse(id);
 
     const { searchParams } = new URL(request.url);
+    const compact = searchParams.get('compact') === '1';
     const todayParam = searchParams.get('today') ?? '';
     const today = isValidDateKey(todayParam)
       ? todayParam
       : getTodayDateKey(user.timezone);
 
     const body = await request.json();
-    const { date } = toggleHabitSchema.parse(body);
+    const { date, completed: desiredCompleted } = toggleHabitSchema.parse(body);
 
     const result = await withAutoSchema(async () => {
+      if (compact && desiredCompleted !== undefined) {
+        const sql = getSql();
+        const rows = desiredCompleted
+          ? await sql`
+              WITH owned AS (
+                SELECT id FROM habits WHERE id = ${habitId}::uuid AND user_id = ${user.id}::uuid
+              ),
+              ins AS (
+                INSERT INTO habit_completions (habit_id, user_id, completed_date)
+                SELECT id, ${user.id}::uuid, ${date}::text FROM owned
+                ON CONFLICT (habit_id, completed_date) DO NOTHING
+              )
+              SELECT EXISTS(SELECT 1 FROM owned) AS found
+            `
+          : await sql`
+              WITH owned AS (
+                SELECT id FROM habits WHERE id = ${habitId}::uuid AND user_id = ${user.id}::uuid
+              ),
+              del AS (
+                DELETE FROM habit_completions
+                WHERE habit_id IN (SELECT id FROM owned)
+                  AND completed_date = ${date}::text
+              )
+              SELECT EXISTS(SELECT 1 FROM owned) AS found
+            `;
+
+        const found = Boolean(rows[0]?.found);
+        if (!found) {
+          return null;
+        }
+        return {
+          completed: desiredCompleted,
+          date,
+        };
+      }
+
       const db = getDb();
       const [habit] = await db
         .select()
@@ -40,33 +77,56 @@ export async function POST(
         return null;
       }
 
-      const existing = await db
-        .select({ id: habitCompletions.id })
-        .from(habitCompletions)
-        .where(
-          and(
-            eq(habitCompletions.habitId, habitId),
-            eq(habitCompletions.completedDate, date),
-          ),
-        )
-        .limit(1);
-
-      let completed = false;
-      if (existing.length > 0) {
-        await db
-          .delete(habitCompletions)
-          .where(eq(habitCompletions.id, existing[0].id));
-        completed = false;
+      let finalCompleted = false;
+      if (desiredCompleted !== undefined) {
+        if (desiredCompleted) {
+          await db
+            .insert(habitCompletions)
+            .values({
+              habitId,
+              userId: user.id,
+              completedDate: date,
+            })
+            .onConflictDoNothing();
+        } else {
+          await db
+            .delete(habitCompletions)
+            .where(
+              and(
+                eq(habitCompletions.habitId, habitId),
+                eq(habitCompletions.completedDate, date),
+              ),
+            );
+        }
+        finalCompleted = desiredCompleted;
       } else {
-        await db
-          .insert(habitCompletions)
-          .values({
-            habitId,
-            userId: user.id,
-            completedDate: date,
-          })
-          .onConflictDoNothing();
-        completed = true;
+        const existing = await db
+          .select({ id: habitCompletions.id })
+          .from(habitCompletions)
+          .where(
+            and(
+              eq(habitCompletions.habitId, habitId),
+              eq(habitCompletions.completedDate, date),
+            ),
+          )
+          .limit(1);
+
+        if (existing.length > 0) {
+          await db
+            .delete(habitCompletions)
+            .where(eq(habitCompletions.id, existing[0].id));
+          finalCompleted = false;
+        } else {
+          await db
+            .insert(habitCompletions)
+            .values({
+              habitId,
+              userId: user.id,
+              completedDate: date,
+            })
+            .onConflictDoNothing();
+          finalCompleted = true;
+        }
       }
 
       const rows = await db
@@ -78,7 +138,7 @@ export async function POST(
       const stats = calculateHabitStats(habit.daysOfWeek, completedDates, today);
 
       return {
-        completed,
+        completed: finalCompleted,
         date,
         completedDates,
         stats,

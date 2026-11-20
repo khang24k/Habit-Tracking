@@ -390,6 +390,15 @@ export const MESSAGES = {
       deleteHabitFailed: 'Không thể xóa thói quen.',
       archiveHabitFailed: 'Không thể cập nhật trạng thái lưu trữ.',
     },
+    sync: {
+      offlinePending: (count: number) =>
+        `Đang ngoại tuyến · ${count} thao tác đã lưu trên máy, sẽ tự đồng bộ khi có mạng.`,
+      retryingPending: (count: number) =>
+        `Đang đồng bộ lại ${count} thao tác đang chờ...`,
+      retryNow: 'Thử lại ngay',
+      syncFailed:
+        'Một số thao tác không thể đồng bộ và đã được cập nhật lại từ máy chủ.',
+    },
   },
   en: {
     auth: {
@@ -595,6 +604,15 @@ export const MESSAGES = {
       updateHabitFailed: 'Unable to update habit.',
       deleteHabitFailed: 'Unable to delete habit.',
       archiveHabitFailed: 'Unable to update archive status.',
+    },
+    sync: {
+      offlinePending: (count: number) =>
+        `Offline · ${count} ${count === 1 ? 'change' : 'changes'} saved locally, waiting for connection.`,
+      retryingPending: (count: number) =>
+        `Retrying sync for ${count} pending ${count === 1 ? 'change' : 'changes'}...`,
+      retryNow: 'Retry now',
+      syncFailed:
+        'Some changes could not be synced and were refreshed from the server.',
     },
   },
 } as const;

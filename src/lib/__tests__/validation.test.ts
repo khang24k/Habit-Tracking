@@ -85,5 +85,19 @@ test('toggleHabitSchema rejects malformed dates', () => {
   assert.deepEqual(toggleHabitSchema.parse({ date: '2026-11-20' }), {
     date: '2026-11-20',
   });
+  assert.deepEqual(
+    toggleHabitSchema.parse({ date: '2026-11-20', completed: true }),
+    {
+      date: '2026-11-20',
+      completed: true,
+    },
+  );
+  assert.deepEqual(
+    toggleHabitSchema.parse({ date: '2026-11-20', completed: false }),
+    {
+      date: '2026-11-20',
+      completed: false,
+    },
+  );
   assert.throws(() => toggleHabitSchema.parse({ date: '2026/11/20' }));
 });

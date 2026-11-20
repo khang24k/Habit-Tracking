@@ -1,22 +1,34 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   BarChart3,
   CalendarCheck,
   CheckSquare,
   Plus,
+  RefreshCw,
   Repeat,
+  WifiOff,
   X,
 } from 'lucide-react';
+import { computeClientStats } from '@/lib/client-stats';
 import { getTodayDateKey } from '@/lib/dates';
-import type {
-  HabitItem,
-  StatsResponse,
-  TaskItem,
-  UserProfile,
-} from '@/types/app';
+import { calculateHabitStats } from '@/lib/streaks';
+import {
+  applyQueuedOpsToState,
+  buildOptimisticHabit,
+  buildOptimisticTask,
+  createOpId,
+  createTempId,
+  dropDependentOps,
+  enqueueMutation,
+  loadQueueFromStorage,
+  remapQueueEntityId,
+  saveQueueToStorage,
+  type QueuedMutation,
+} from '@/lib/sync-queue';
+import type { HabitItem, TaskItem, UserProfile } from '@/types/app';
 import { HabitModal, type HabitFormPayload } from './HabitModal';
 import { HabitsView } from './HabitsView';
 import { useLanguage } from './LanguageProvider';
@@ -32,261 +44,970 @@ interface DashboardAppProps {
   initialUser: UserProfile;
 }
 
+function isTransientHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
 export function DashboardApp({ initialUser }: DashboardAppProps) {
   const router = useRouter();
   const { t } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  const [effectiveTimeZone, setEffectiveTimeZone] = useState(
+    initialUser.timezone,
+  );
   const [todayKey, setTodayKey] = useState(() =>
     getTodayDateKey(initialUser.timezone),
   );
+  const todayKeyRef = useRef(todayKey);
+  todayKeyRef.current = todayKey;
+
   const [selectedDate, setSelectedDate] = useState(() =>
     getTodayDateKey(initialUser.timezone),
   );
   const [activeTab, setActiveTab] = useState<TabKey>('today');
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const tasksRef = useRef<TaskItem[]>([]);
   const [habits, setHabits] = useState<HabitItem[]>([]);
-  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const habitsRef = useRef<HabitItem[]>([]);
+
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [habitModalOpen, setHabitModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<HabitItem | null>(null);
 
-  useEffect(() => {
-    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const localToday = getTodayDateKey(browserTz || initialUser.timezone);
-    setTodayKey(localToday);
-    setSelectedDate(localToday);
-  }, [initialUser.timezone]);
+  const queueRef = useRef<QueuedMutation[]>([]);
+  const inFlightOpIdRef = useRef<string | null>(null);
+  const workerActiveRef = useRef(false);
+  const coalesceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
+  const unmountedRef = useRef(false);
+  const drainResolversRef = useRef<Array<() => void>>([]);
+  const tempToServerIdRef = useRef<Map<string, string>>(new Map());
+
+  const setTasksSynced = useCallback(
+    (updater: TaskItem[] | ((prev: TaskItem[]) => TaskItem[])) => {
+      const resolved =
+        typeof updater === 'function' ? updater(tasksRef.current) : updater;
+      tasksRef.current = resolved;
+      setTasks(resolved);
+    },
+    [],
+  );
+
+  const setHabitsSynced = useCallback(
+    (updater: HabitItem[] | ((prev: HabitItem[]) => HabitItem[])) => {
+      const resolved =
+        typeof updater === 'function' ? updater(habitsRef.current) : updater;
+      habitsRef.current = resolved;
+      setHabits(resolved);
+    },
+    [],
+  );
+
+  const resolveEntityId = useCallback((id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (tempToServerIdRef.current.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = tempToServerIdRef.current.get(current)!;
+    }
+    return current;
+  }, []);
+
+  const resolveDrainWaiters = useCallback(() => {
+    if (drainResolversRef.current.length === 0) return;
+    const resolvers = drainResolversRef.current;
+    drainResolversRef.current = [];
+    for (const resolve of resolvers) {
+      resolve();
+    }
+  }, []);
 
   const loadAllData = useCallback(
-    async (today: string, archivedFlag: boolean) => {
+    async (today: string) => {
       try {
-        const [tasksRes, habitsRes, statsRes] = await Promise.all([
+        const [tasksRes, habitsRes] = await Promise.all([
           fetch(`/api/tasks?today=${encodeURIComponent(today)}`, {
             cache: 'no-store',
           }),
           fetch(
-            `/api/habits?today=${encodeURIComponent(today)}&includeArchived=${archivedFlag}`,
+            `/api/habits?today=${encodeURIComponent(today)}&includeArchived=true`,
             { cache: 'no-store' },
           ),
-          fetch(`/api/stats?today=${encodeURIComponent(today)}`, {
-            cache: 'no-store',
-          }),
         ]);
 
-        if (
-          tasksRes.status === 401 ||
-          habitsRes.status === 401 ||
-          statsRes.status === 401
-        ) {
+        if (tasksRes.status === 401 || habitsRes.status === 401) {
           router.push('/login');
           return;
         }
 
-        const [tasksData, habitsData, statsData] = await Promise.all([
+        const [tasksData, habitsData] = await Promise.all([
           tasksRes.json() as Promise<{ tasks?: TaskItem[]; error?: string }>,
           habitsRes.json() as Promise<{ habits?: HabitItem[]; error?: string }>,
-          statsRes.json() as Promise<StatsResponse & { error?: string }>,
         ]);
 
-        if (tasksRes.ok && tasksData.tasks) setTasks(tasksData.tasks);
-        if (habitsRes.ok && habitsData.habits) setHabits(habitsData.habits);
-        if (statsRes.ok && !statsData.error) setStats(statsData);
-        setErrorBanner(null);
+        if (tasksRes.ok && habitsRes.ok && tasksData.tasks && habitsData.habits) {
+          const merged = applyQueuedOpsToState(
+            tasksData.tasks,
+            habitsData.habits,
+            queueRef.current,
+            initialUser.id,
+            today,
+          );
+          setTasksSynced(merged.tasks);
+          setHabitsSynced(merged.habits);
+          setErrorBanner(null);
+        } else {
+          if (tasksRes.ok && tasksData.tasks) {
+            const mergedTasks = applyQueuedOpsToState(
+              tasksData.tasks,
+              habitsRef.current,
+              queueRef.current,
+              initialUser.id,
+              today,
+            );
+            setTasksSynced(mergedTasks.tasks);
+          }
+          if (habitsRes.ok && habitsData.habits) {
+            const mergedHabits = applyQueuedOpsToState(
+              tasksRef.current,
+              habitsData.habits,
+              queueRef.current,
+              initialUser.id,
+              today,
+            );
+            setHabitsSynced(mergedHabits.habits);
+          }
+        }
       } catch {
-        setErrorBanner(t.errors.loadFailed);
+        setErrorBanner(tRef.current.errors.loadFailed);
       } finally {
         setLoading(false);
       }
     },
-    [router, t.errors.loadFailed],
+    [initialUser.id, router, setHabitsSynced, setTasksSynced],
+  );
+
+  const drainQueueRef = useRef<() => Promise<void>>(async () => {});
+
+  const scheduleDrain = useCallback((delayMs: number) => {
+    if (
+      unmountedRef.current ||
+      workerActiveRef.current ||
+      queueRef.current.length === 0
+    ) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      return;
+    }
+
+    if (coalesceTimerRef.current) {
+      clearTimeout(coalesceTimerRef.current);
+      coalesceTimerRef.current = null;
+    }
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
+    coalesceTimerRef.current = setTimeout(() => {
+      coalesceTimerRef.current = null;
+      void drainQueueRef.current();
+    }, delayMs);
+  }, []);
+
+  const drainQueue = useCallback(async () => {
+    if (unmountedRef.current || workerActiveRef.current) {
+      return;
+    }
+
+    if (queueRef.current.length === 0) {
+      resolveDrainWaiters();
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      setIsRetrying(false);
+      resolveDrainWaiters();
+      return;
+    }
+
+    workerActiveRef.current = true;
+    let needsServerResync = false;
+
+    try {
+      while (queueRef.current.length > 0 && !unmountedRef.current) {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          setIsOnline(false);
+          setIsRetrying(false);
+          break;
+        }
+
+        const op = queueRef.current[0];
+        inFlightOpIdRef.current = op.opId;
+
+        let res: Response;
+        try {
+          switch (op.type) {
+            case 'task:create':
+              res = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(op.payload),
+              });
+              break;
+            case 'task:update':
+              res = await fetch(`/api/tasks/${op.taskId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(op.patch),
+              });
+              break;
+            case 'task:delete':
+              res = await fetch(`/api/tasks/${op.taskId}`, {
+                method: 'DELETE',
+              });
+              break;
+            case 'habit:create':
+              res = await fetch(
+                `/api/habits?today=${encodeURIComponent(todayKeyRef.current)}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(op.payload),
+                },
+              );
+              break;
+            case 'habit:update':
+              res = await fetch(
+                `/api/habits/${op.habitId}?today=${encodeURIComponent(todayKeyRef.current)}&compact=1`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(op.patch),
+                },
+              );
+              break;
+            case 'habit:set-completion':
+              res = await fetch(
+                `/api/habits/${op.habitId}/toggle?today=${encodeURIComponent(todayKeyRef.current)}&compact=1`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    date: op.date,
+                    completed: op.completed,
+                  }),
+                },
+              );
+              break;
+            case 'habit:delete':
+              res = await fetch(`/api/habits/${op.habitId}`, {
+                method: 'DELETE',
+              });
+              break;
+          }
+        } catch {
+          inFlightOpIdRef.current = null;
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            setIsOnline(false);
+            setIsRetrying(false);
+          } else {
+            retryAttemptRef.current += 1;
+            setIsRetrying(true);
+            const backoffMs = Math.min(
+              15000,
+              1000 * 2 ** Math.min(retryAttemptRef.current - 1, 4),
+            );
+            if (!unmountedRef.current) {
+              retryTimerRef.current = setTimeout(() => {
+                retryTimerRef.current = null;
+                void drainQueueRef.current();
+              }, backoffMs);
+            }
+          }
+          return;
+        }
+
+        if (res.status === 401) {
+          inFlightOpIdRef.current = null;
+          setIsRetrying(false);
+          router.push('/login');
+          return;
+        }
+
+        const isDeleteMissing =
+          (op.type === 'task:delete' || op.type === 'habit:delete') &&
+          res.status === 404;
+
+        if (res.ok || isDeleteMissing) {
+          inFlightOpIdRef.current = null;
+          retryAttemptRef.current = 0;
+          setIsRetrying(false);
+          setIsOnline(true);
+
+          let remaining = queueRef.current.filter(
+            (item) => item.opId !== op.opId,
+          );
+
+          if (op.type === 'task:create') {
+            const data = (await res.json()) as { task?: TaskItem };
+            if (data.task) {
+              const serverTask = data.task;
+              tempToServerIdRef.current.set(op.tempId, serverTask.id);
+              remaining = remapQueueEntityId(
+                remaining,
+                'task',
+                op.tempId,
+                serverTask.id,
+              );
+              queueRef.current = remaining;
+              saveQueueToStorage(initialUser.id, remaining);
+              setPendingCount(remaining.length);
+
+              const trailingTaskOps = remaining.filter(
+                (item) =>
+                  (item.type === 'task:update' || item.type === 'task:delete') &&
+                  item.taskId === serverTask.id,
+              );
+              const reconciled = applyQueuedOpsToState(
+                [serverTask],
+                [],
+                trailingTaskOps,
+                initialUser.id,
+                todayKeyRef.current,
+              );
+              const reconciledTask = reconciled.tasks[0] ?? null;
+
+              setTasksSynced((prev) =>
+                reconciledTask
+                  ? prev.map((tItem) =>
+                      tItem.id === op.tempId ? reconciledTask : tItem,
+                    )
+                  : prev.filter((tItem) => tItem.id !== op.tempId),
+              );
+              setEditingTask((prev) =>
+                prev?.id === op.tempId ? reconciledTask : prev,
+              );
+              continue;
+            }
+          } else if (op.type === 'task:update') {
+            const data = (await res.json()) as { task?: TaskItem };
+            queueRef.current = remaining;
+            saveQueueToStorage(initialUser.id, remaining);
+            setPendingCount(remaining.length);
+
+            if (data.task) {
+              const serverTask = data.task;
+              const trailingTaskOps = remaining.filter(
+                (item) =>
+                  (item.type === 'task:update' || item.type === 'task:delete') &&
+                  item.taskId === op.taskId,
+              );
+              const reconciled = applyQueuedOpsToState(
+                [serverTask],
+                [],
+                trailingTaskOps,
+                initialUser.id,
+                todayKeyRef.current,
+              );
+              const reconciledTask = reconciled.tasks[0] ?? null;
+              setTasksSynced((prev) =>
+                reconciledTask
+                  ? prev.map((tItem) =>
+                      tItem.id === op.taskId ? reconciledTask : tItem,
+                    )
+                  : prev.filter((tItem) => tItem.id !== op.taskId),
+              );
+            }
+            continue;
+          } else if (op.type === 'habit:create') {
+            const data = (await res.json()) as { habit?: HabitItem };
+            if (data.habit) {
+              const serverHabit = data.habit;
+              tempToServerIdRef.current.set(op.tempId, serverHabit.id);
+              remaining = remapQueueEntityId(
+                remaining,
+                'habit',
+                op.tempId,
+                serverHabit.id,
+              );
+              queueRef.current = remaining;
+              saveQueueToStorage(initialUser.id, remaining);
+              setPendingCount(remaining.length);
+
+              const trailingHabitOps = remaining.filter(
+                (item) =>
+                  (item.type === 'habit:update' ||
+                    item.type === 'habit:set-completion' ||
+                    item.type === 'habit:delete') &&
+                  item.habitId === serverHabit.id,
+              );
+              const reconciled = applyQueuedOpsToState(
+                [],
+                [serverHabit],
+                trailingHabitOps,
+                initialUser.id,
+                todayKeyRef.current,
+              );
+              const reconciledHabit = reconciled.habits[0] ?? null;
+
+              setHabitsSynced((prev) =>
+                reconciledHabit
+                  ? prev.map((hItem) =>
+                      hItem.id === op.tempId ? reconciledHabit : hItem,
+                    )
+                  : prev.filter((hItem) => hItem.id !== op.tempId),
+              );
+              setEditingHabit((prev) =>
+                prev?.id === op.tempId ? reconciledHabit : prev,
+              );
+              continue;
+            }
+          } else if (op.type === 'habit:update') {
+            const data = (await res.json()) as {
+              habit?: Omit<HabitItem, 'completedDates' | 'stats'>;
+            };
+            queueRef.current = remaining;
+            saveQueueToStorage(initialUser.id, remaining);
+            setPendingCount(remaining.length);
+
+            const hasTrailingHabitOp = remaining.some(
+              (item) =>
+                (item.type === 'habit:update' || item.type === 'habit:delete') &&
+                item.habitId === op.habitId,
+            );
+            if (data.habit && !hasTrailingHabitOp) {
+              const serverFields = data.habit;
+              setHabitsSynced((prev) =>
+                prev.map((hItem) => {
+                  if (hItem.id !== op.habitId) return hItem;
+                  const nextDays = serverFields.daysOfWeek ?? hItem.daysOfWeek;
+                  return {
+                    ...hItem,
+                    title: serverFields.title,
+                    description: serverFields.description,
+                    category: serverFields.category,
+                    color: serverFields.color,
+                    frequency: serverFields.frequency,
+                    daysOfWeek: nextDays,
+                    reminderTime: serverFields.reminderTime,
+                    archived: serverFields.archived,
+                    updatedAt: serverFields.updatedAt,
+                    stats: calculateHabitStats(
+                      nextDays,
+                      hItem.completedDates,
+                      todayKeyRef.current,
+                    ),
+                  };
+                }),
+              );
+            }
+            continue;
+          }
+
+          queueRef.current = remaining;
+          saveQueueToStorage(initialUser.id, remaining);
+          setPendingCount(remaining.length);
+          continue;
+        }
+
+        inFlightOpIdRef.current = null;
+
+        if (isTransientHttpStatus(res.status)) {
+          retryAttemptRef.current += 1;
+          setIsRetrying(true);
+          const backoffMs = Math.min(
+            15000,
+            1000 * 2 ** Math.min(retryAttemptRef.current - 1, 4),
+          );
+          if (!unmountedRef.current) {
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              void drainQueueRef.current();
+            }, backoffMs);
+          }
+          return;
+        }
+
+        // Lỗi 4xx vĩnh viễn: loại bỏ thao tác lỗi và đồng bộ lại trạng thái chuẩn từ máy chủ
+        let serverErrorMsg: string | undefined;
+        try {
+          const errBody = (await res.json()) as { error?: string };
+          serverErrorMsg = errBody.error;
+        } catch {
+          serverErrorMsg = undefined;
+        }
+
+        let remaining = queueRef.current.filter(
+          (item) => item.opId !== op.opId,
+        );
+        if (op.type === 'task:create') {
+          remaining = dropDependentOps(remaining, 'task', op.tempId);
+        } else if (op.type === 'habit:create') {
+          remaining = dropDependentOps(remaining, 'habit', op.tempId);
+        }
+        queueRef.current = remaining;
+        saveQueueToStorage(initialUser.id, remaining);
+        setPendingCount(remaining.length);
+        setErrorBanner(serverErrorMsg ?? tRef.current.sync.syncFailed);
+        needsServerResync = true;
+      }
+    } finally {
+      inFlightOpIdRef.current = null;
+      workerActiveRef.current = false;
+      if (queueRef.current.length === 0) {
+        resolveDrainWaiters();
+      }
+      if (needsServerResync && !unmountedRef.current) {
+        void loadAllData(todayKeyRef.current);
+      }
+    }
+  }, [
+    initialUser.id,
+    loadAllData,
+    resolveDrainWaiters,
+    router,
+    setHabitsSynced,
+    setTasksSynced,
+  ]);
+
+  drainQueueRef.current = drainQueue;
+
+  const triggerImmediateDrain = useCallback(() => {
+    if (coalesceTimerRef.current) {
+      clearTimeout(coalesceTimerRef.current);
+      coalesceTimerRef.current = null;
+    }
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    retryAttemptRef.current = 0;
+    if (!workerActiveRef.current && queueRef.current.length > 0) {
+      void drainQueueRef.current();
+    }
+  }, []);
+
+  const enqueueAndPersist = useCallback(
+    (op: QueuedMutation, drainDelayMs = 150) => {
+      const nextQueue = enqueueMutation(
+        queueRef.current,
+        op,
+        inFlightOpIdRef.current,
+      );
+      queueRef.current = nextQueue;
+      saveQueueToStorage(initialUser.id, nextQueue);
+      setPendingCount(nextQueue.length);
+
+      if (nextQueue.length === 0) {
+        retryAttemptRef.current = 0;
+        setIsRetrying(false);
+        if (coalesceTimerRef.current) {
+          clearTimeout(coalesceTimerRef.current);
+          coalesceTimerRef.current = null;
+        }
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        if (!workerActiveRef.current) {
+          resolveDrainWaiters();
+        }
+      } else {
+        scheduleDrain(drainDelayMs);
+      }
+    },
+    [initialUser.id, resolveDrainWaiters, scheduleDrain],
   );
 
   useEffect(() => {
-    void loadAllData(todayKey, includeArchived);
-  }, [todayKey, includeArchived, loadAllData]);
+    unmountedRef.current = false;
 
-  const refreshStats = useCallback(async () => {
-    const res = await fetch(`/api/stats?today=${encodeURIComponent(todayKey)}`, {
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const data = (await res.json()) as StatsResponse;
-      setStats(data);
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (browserTz && browserTz !== initialUser.timezone) {
+      setEffectiveTimeZone(browserTz);
     }
-  }, [todayKey]);
+    const localToday = getTodayDateKey(browserTz || initialUser.timezone);
+    if (localToday !== todayKeyRef.current) {
+      setTodayKey(localToday);
+      setSelectedDate(localToday);
+    }
+
+    const storedQueue = loadQueueFromStorage(initialUser.id);
+    if (storedQueue.length > 0) {
+      queueRef.current = storedQueue;
+      setPendingCount(storedQueue.length);
+      const overlaid = applyQueuedOpsToState(
+        tasksRef.current,
+        habitsRef.current,
+        storedQueue,
+        initialUser.id,
+        localToday,
+      );
+      setTasksSynced(overlaid.tasks);
+      setHabitsSynced(overlaid.habits);
+    }
+
+    if (typeof navigator !== 'undefined') {
+      setIsOnline(navigator.onLine);
+    }
+
+    function handleOnline() {
+      setIsOnline(true);
+      triggerImmediateDrain();
+    }
+
+    function handleOffline() {
+      setIsOnline(false);
+      setIsRetrying(false);
+    }
+
+    function handleVisibilityChange() {
+      if (
+        document.visibilityState === 'visible' &&
+        queueRef.current.length > 0 &&
+        (typeof navigator === 'undefined' || navigator.onLine)
+      ) {
+        triggerImmediateDrain();
+      }
+    }
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      if (queueRef.current.length > 0) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    }
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      unmountedRef.current = true;
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      if (coalesceTimerRef.current) clearTimeout(coalesceTimerRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      resolveDrainWaiters();
+    };
+  }, [
+    initialUser.id,
+    initialUser.timezone,
+    resolveDrainWaiters,
+    setHabitsSynced,
+    setTasksSynced,
+    triggerImmediateDrain,
+  ]);
+
+  useEffect(() => {
+    void loadAllData(todayKey).then(() => {
+      if (
+        !unmountedRef.current &&
+        queueRef.current.length > 0 &&
+        (typeof navigator === 'undefined' || navigator.onLine)
+      ) {
+        scheduleDrain(0);
+      }
+    });
+  }, [todayKey, loadAllData, scheduleDrain]);
 
   async function handleLogout() {
+    if (
+      queueRef.current.length > 0 &&
+      (typeof navigator === 'undefined' || navigator.onLine)
+    ) {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          drainResolversRef.current.push(resolve);
+          triggerImmediateDrain();
+          if (queueRef.current.length === 0 && !workerActiveRef.current) {
+            resolve();
+          }
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
     router.refresh();
   }
 
   async function handleSaveTask(payload: TaskFormPayload, taskId?: string) {
-    const url = taskId ? `/api/tasks/${taskId}` : '/api/tasks';
-    const method = taskId ? 'PATCH' : 'POST';
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = (await res.json()) as { task?: TaskItem; error?: string };
-    if (!res.ok || !data.task) {
-      throw new Error(data.error ?? t.errors.saveTaskFailed);
-    }
+    const nowIso = new Date().toISOString();
+    const resolvedId = taskId ? resolveEntityId(taskId) : undefined;
 
-    if (taskId) {
-      setTasks((prev) => prev.map((t) => (t.id === taskId ? data.task! : t)));
+    if (!resolvedId) {
+      const tempId = createTempId('task');
+      const optimisticTask = buildOptimisticTask(
+        tempId,
+        initialUser.id,
+        payload,
+        nowIso,
+      );
+      setTasksSynced((prev) => [optimisticTask, ...prev]);
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'task:create',
+        tempId,
+        payload,
+        createdAt: nowIso,
+      });
     } else {
-      setTasks((prev) => [data.task!, ...prev]);
+      setTasksSynced((prev) =>
+        prev.map((item) =>
+          item.id === resolvedId || item.id === taskId
+            ? {
+                ...item,
+                title: payload.title,
+                notes: payload.notes,
+                dueDate: payload.dueDate,
+                priority: payload.priority,
+                category: payload.category,
+                updatedAt: nowIso,
+              }
+            : item,
+        ),
+      );
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'task:update',
+        taskId: resolvedId,
+        patch: payload,
+        createdAt: nowIso,
+      });
     }
     setErrorBanner(null);
-    void refreshStats();
   }
 
   async function handleToggleTask(task: TaskItem) {
-    const nextCompleted = !task.completed;
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id ? { ...t, completed: nextCompleted } : t,
+    const resolvedId = resolveEntityId(task.id);
+    const current =
+      tasksRef.current.find(
+        (item) => item.id === resolvedId || item.id === task.id,
+      ) ?? task;
+    const prevCompleted = current.completed;
+    const nextCompleted = !prevCompleted;
+    const nowIso = new Date().toISOString();
+
+    setTasksSynced((prev) =>
+      prev.map((item) =>
+        item.id === resolvedId || item.id === task.id
+          ? {
+              ...item,
+              completed: nextCompleted,
+              completedAt: nextCompleted ? (item.completedAt ?? nowIso) : null,
+              updatedAt: nowIso,
+            }
+          : item,
       ),
     );
 
-    const res = await fetch(`/api/tasks/${task.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ completed: nextCompleted }),
+    enqueueAndPersist({
+      opId: createOpId(),
+      type: 'task:update',
+      taskId: resolvedId,
+      patch: { completed: nextCompleted },
+      baseCompleted: prevCompleted,
+      createdAt: nowIso,
     });
-    const data = (await res.json()) as { task?: TaskItem; error?: string };
-    if (!res.ok || !data.task) {
-      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)));
-      setErrorBanner(data.error ?? t.errors.updateTaskFailed);
-      return;
-    }
-
-    setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task! : t)));
-    void refreshStats();
   }
 
   async function handleDeleteTask(taskId: string) {
-    const previous = tasks;
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
-    if (!res.ok) {
-      setTasks(previous);
-      setErrorBanner(t.errors.deleteTaskFailed);
-      return;
-    }
-    void refreshStats();
+    const resolvedId = resolveEntityId(taskId);
+    setTasksSynced((prev) =>
+      prev.filter((item) => item.id !== resolvedId && item.id !== taskId),
+    );
+    enqueueAndPersist({
+      opId: createOpId(),
+      type: 'task:delete',
+      taskId: resolvedId,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async function handleRescheduleOverdue() {
-    const overdue = tasks.filter((t) => !t.completed && t.dueDate < todayKey);
+    const targetDate = todayKeyRef.current;
+    const overdue = tasksRef.current.filter(
+      (item) => !item.completed && item.dueDate < targetDate,
+    );
     if (overdue.length === 0) return;
 
-    await Promise.all(
-      overdue.map((task) =>
-        fetch(`/api/tasks/${task.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dueDate: todayKey }),
-        }),
+    const nowIso = new Date().toISOString();
+    const overdueIds = new Set(overdue.map((item) => item.id));
+
+    setTasksSynced((prev) =>
+      prev.map((item) =>
+        overdueIds.has(item.id)
+          ? { ...item, dueDate: targetDate, updatedAt: nowIso }
+          : item,
       ),
     );
-    await loadAllData(todayKey, includeArchived);
+
+    for (const item of overdue) {
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'task:update',
+        taskId: resolveEntityId(item.id),
+        patch: { dueDate: targetDate },
+        createdAt: nowIso,
+      });
+    }
   }
 
   async function handleSaveHabit(payload: HabitFormPayload, habitId?: string) {
-    const url = habitId
-      ? `/api/habits/${habitId}?today=${encodeURIComponent(todayKey)}`
-      : `/api/habits?today=${encodeURIComponent(todayKey)}`;
-    const method = habitId ? 'PATCH' : 'POST';
+    const nowIso = new Date().toISOString();
+    const resolvedId = habitId ? resolveEntityId(habitId) : undefined;
 
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = (await res.json()) as { habit?: HabitItem; error?: string };
-    if (!res.ok || !data.habit) {
-      throw new Error(data.error ?? t.errors.saveHabitFailed);
-    }
-
-    if (habitId) {
-      setHabits((prev) =>
-        prev.map((h) => (h.id === habitId ? data.habit! : h)),
+    if (!resolvedId) {
+      const tempId = createTempId('habit');
+      const optimisticHabit = buildOptimisticHabit(
+        tempId,
+        initialUser.id,
+        payload,
+        todayKeyRef.current,
+        nowIso,
       );
+      setHabitsSynced((prev) => [...prev, optimisticHabit]);
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'habit:create',
+        tempId,
+        payload,
+        createdAt: nowIso,
+      });
     } else {
-      setHabits((prev) => [...prev, data.habit!]);
+      setHabitsSynced((prev) =>
+        prev.map((h) => {
+          if (h.id !== resolvedId && h.id !== habitId) return h;
+          return {
+            ...h,
+            title: payload.title,
+            description: payload.description,
+            category: payload.category,
+            color: payload.color,
+            frequency: payload.frequency,
+            daysOfWeek: [...payload.daysOfWeek],
+            reminderTime: payload.reminderTime,
+            updatedAt: nowIso,
+            stats: calculateHabitStats(
+              payload.daysOfWeek,
+              h.completedDates,
+              todayKeyRef.current,
+            ),
+          };
+        }),
+      );
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'habit:update',
+        habitId: resolvedId,
+        patch: payload,
+        createdAt: nowIso,
+      });
     }
     setErrorBanner(null);
-    void refreshStats();
   }
 
   async function handleToggleHabit(habitId: string, date: string) {
-    const res = await fetch(
-      `/api/habits/${habitId}/toggle?today=${encodeURIComponent(todayKey)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date }),
-      },
+    const resolvedId = resolveEntityId(habitId);
+    const habit = habitsRef.current.find(
+      (h) => h.id === resolvedId || h.id === habitId,
     );
-    const data = (await res.json()) as {
-      completedDates?: string[];
-      stats?: HabitItem['stats'];
-      error?: string;
-    };
+    if (!habit) return;
 
-    if (!res.ok || !data.completedDates || !data.stats) {
-      setErrorBanner(data.error ?? t.errors.updateHabitFailed);
-      return;
-    }
+    const prevCompleted = habit.completedDates.includes(date);
+    const nextCompleted = !prevCompleted;
+    const nextDates = nextCompleted
+      ? [...habit.completedDates, date]
+      : habit.completedDates.filter((d) => d !== date);
+    const nextStats = calculateHabitStats(
+      habit.daysOfWeek,
+      nextDates,
+      todayKeyRef.current,
+    );
 
-    setHabits((prev) =>
+    setHabitsSynced((prev) =>
       prev.map((h) =>
-        h.id === habitId
+        h.id === resolvedId || h.id === habitId
           ? {
               ...h,
-              completedDates: data.completedDates!,
-              stats: data.stats!,
+              completedDates: nextDates,
+              stats: nextStats,
             }
           : h,
       ),
     );
-    void refreshStats();
+
+    enqueueAndPersist({
+      opId: createOpId(),
+      type: 'habit:set-completion',
+      habitId: resolvedId,
+      date,
+      completed: nextCompleted,
+      baseCompleted: prevCompleted,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async function handleDeleteHabit(habitId: string) {
-    const previous = habits;
-    setHabits((prev) => prev.filter((h) => h.id !== habitId));
-    const res = await fetch(`/api/habits/${habitId}`, { method: 'DELETE' });
-    if (!res.ok) {
-      setHabits(previous);
-      setErrorBanner(t.errors.deleteHabitFailed);
-      return;
-    }
-    void refreshStats();
+    const resolvedId = resolveEntityId(habitId);
+    setHabitsSynced((prev) =>
+      prev.filter((h) => h.id !== resolvedId && h.id !== habitId),
+    );
+    enqueueAndPersist({
+      opId: createOpId(),
+      type: 'habit:delete',
+      habitId: resolvedId,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async function handleArchiveHabit(habit: HabitItem, archived: boolean) {
-    const res = await fetch(
-      `/api/habits/${habit.id}?today=${encodeURIComponent(todayKey)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archived }),
-      },
+    const resolvedId = resolveEntityId(habit.id);
+    const current =
+      habitsRef.current.find(
+        (h) => h.id === resolvedId || h.id === habit.id,
+      ) ?? habit;
+    const prevArchived = current.archived;
+    const nowIso = new Date().toISOString();
+
+    setHabitsSynced((prev) =>
+      prev.map((h) =>
+        h.id === resolvedId || h.id === habit.id
+          ? { ...h, archived, updatedAt: nowIso }
+          : h,
+      ),
     );
-    if (!res.ok) {
-      setErrorBanner(t.errors.archiveHabitFailed);
-      return;
-    }
-    await loadAllData(todayKey, includeArchived);
+
+    enqueueAndPersist({
+      opId: createOpId(),
+      type: 'habit:update',
+      habitId: resolvedId,
+      patch: { archived },
+      baseArchived: prevArchived,
+      createdAt: nowIso,
+    });
   }
 
   const navItems: {
@@ -300,7 +1021,19 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
     { key: 'stats', label: t.nav.stats, icon: BarChart3 },
   ];
 
-  const activeHabits = habits.filter((h) => !h.archived);
+  const activeHabits = useMemo(
+    () => habits.filter((h) => !h.archived),
+    [habits],
+  );
+  const visibleHabits = useMemo(
+    () => (includeArchived ? habits : activeHabits),
+    [activeHabits, habits, includeArchived],
+  );
+  const stats = useMemo(
+    () => computeClientStats(tasks, habits, todayKey, effectiveTimeZone),
+    [tasks, habits, todayKey, effectiveTimeZone],
+  );
+
   const currentMaxStreak = activeHabits.reduce(
     (max, h) => Math.max(max, h.stats.currentStreak),
     0,
@@ -384,6 +1117,32 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
             onLogout={handleLogout}
           />
 
+          {pendingCount > 0 && (!isOnline || isRetrying) && (
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-2.5 text-sm text-amber-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200">
+              <div className="flex min-w-0 items-center gap-2.5">
+                {isOnline ? (
+                  <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-amber-600 dark:text-neutral-300" />
+                ) : (
+                  <WifiOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-neutral-300" />
+                )}
+                <span className="break-words">
+                  {isOnline
+                    ? t.sync.retryingPending(pendingCount)
+                    : t.sync.offlinePending(pendingCount)}
+                </span>
+              </div>
+              {isOnline && (
+                <button
+                  type="button"
+                  onClick={triggerImmediateDrain}
+                  className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                >
+                  {t.sync.retryNow}
+                </button>
+              )}
+            </div>
+          )}
+
           {errorBanner && (
             <div className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300">
               <span>{errorBanner}</span>
@@ -438,7 +1197,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
 
               {activeTab === 'habits' && (
                 <HabitsView
-                  habits={habits}
+                  habits={visibleHabits}
                   todayKey={todayKey}
                   includeArchived={includeArchived}
                   onToggleIncludeArchived={() =>
