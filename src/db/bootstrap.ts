@@ -69,9 +69,13 @@ async function runSchemaBootstrap(): Promise<void> {
         days_of_week JSONB NOT NULL DEFAULT '[0, 1, 2, 3, 4, 5, 6]'::jsonb,
         reminder_time TEXT,
         archived BOOLEAN NOT NULL DEFAULT false,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
+    `,
+    sql`
+      ALTER TABLE habits ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0
     `,
     sql`
       CREATE INDEX IF NOT EXISTS habits_user_archived_idx ON habits (user_id, archived)
@@ -96,17 +100,17 @@ async function runSchemaBootstrap(): Promise<void> {
   ]);
 }
 
-export function isUndefinedTableError(err: unknown): boolean {
+export function isSchemaBootstrapError(err: unknown): boolean {
   if (!err || typeof err !== 'object') {
     return false;
   }
   const candidate = err as { code?: unknown; cause?: unknown };
-  if (candidate.code === '42P01') {
+  if (candidate.code === '42P01' || candidate.code === '42703') {
     return true;
   }
   if (candidate.cause && typeof candidate.cause === 'object') {
     const cause = candidate.cause as { code?: unknown };
-    return cause.code === '42P01';
+    return cause.code === '42P01' || cause.code === '42703';
   }
   return false;
 }
@@ -115,7 +119,7 @@ export async function withAutoSchema<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (isUndefinedTableError(err)) {
+    if (isSchemaBootstrapError(err)) {
       await ensureSchema();
       return await fn();
     }

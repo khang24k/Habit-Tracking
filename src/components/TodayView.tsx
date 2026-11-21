@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock,
   Flame,
+  GripVertical,
   Pencil,
   Plus,
   Repeat,
@@ -16,12 +17,8 @@ import {
 } from 'lucide-react';
 import {
   CATEGORIES,
-  CATEGORY_KEYS,
   HABIT_COLORS,
   PRIORITIES,
-  PRIORITY_KEYS,
-  type CategoryKey,
-  type PriorityKey,
 } from '@/lib/constants';
 import {
   addDays,
@@ -32,66 +29,95 @@ import {
   isScheduledOnDate,
 } from '@/lib/dates';
 import { getCategoryLabel, getPriorityLabel } from '@/lib/i18n';
+import {
+  compareHabitsForDisplay,
+  compareTasksForDisplay,
+} from '@/lib/reorder';
 import type { HabitItem, TaskItem } from '@/types/app';
 import { useLanguage } from './LanguageProvider';
-import type { TaskFormPayload } from './TaskModal';
+import { useLongPressReorder } from './useLongPressReorder';
 
 interface TodayViewProps {
-  userName: string;
   todayKey: string;
   selectedDate: string;
   onSelectDate: (date: string) => void;
   tasks: TaskItem[];
   habits: HabitItem[];
-  onQuickCreateTask: (payload: TaskFormPayload) => Promise<void>;
   onToggleTask: (task: TaskItem) => Promise<void>;
+  onOpenNewTask: () => void;
   onEditTask: (task: TaskItem) => void;
   onDeleteTask: (taskId: string) => Promise<void>;
   onRescheduleOverdue: () => Promise<void>;
   onToggleHabit: (habitId: string, date: string) => Promise<void>;
   onOpenNewHabit: () => void;
   onEditHabit: (habit: HabitItem) => void;
+  onReorderHabits: (orderedHabitIds: string[]) => void;
+  onReorderDayTasks: (dateKey: string, orderedTaskIds: string[]) => void;
 }
 
 export function TodayView({
-  userName,
   todayKey,
   selectedDate,
   onSelectDate,
   tasks,
   habits,
-  onQuickCreateTask,
   onToggleTask,
+  onOpenNewTask,
   onEditTask,
   onDeleteTask,
   onRescheduleOverdue,
   onToggleHabit,
   onOpenNewHabit,
   onEditHabit,
+  onReorderHabits,
+  onReorderDayTasks,
 }: TodayViewProps) {
   const { locale, t } = useLanguage();
-  const [quickTitle, setQuickTitle] = useState('');
-  const [quickCategory, setQuickCategory] = useState<CategoryKey>('personal');
-  const [quickPriority, setQuickPriority] = useState<PriorityKey>('medium');
-  const [submitting, setSubmitting] = useState(false);
   const [showUnscheduledHabits, setShowUnscheduledHabits] = useState(false);
 
   const isViewingToday = selectedDate === todayKey;
 
-  const dayTasks = tasks.filter((item) => item.dueDate === selectedDate);
-  const overdueTasks = tasks.filter(
-    (item) => !item.completed && item.dueDate < todayKey,
+  const dayTasks = useMemo(
+    () =>
+      tasks
+        .filter((item) => item.dueDate === selectedDate)
+        .sort(compareTasksForDisplay),
+    [tasks, selectedDate],
+  );
+  const overdueTasks = useMemo(
+    () => tasks.filter((item) => !item.completed && item.dueDate < todayKey),
+    [tasks, todayKey],
   );
 
-  const scheduledHabits = habits.filter((h) =>
-    isScheduledOnDate(h.daysOfWeek, selectedDate),
+  const sortedHabits = useMemo(
+    () => [...habits].sort(compareHabitsForDisplay),
+    [habits],
   );
-  const unscheduledHabits = habits.filter(
-    (h) => !isScheduledOnDate(h.daysOfWeek, selectedDate),
+  const scheduledHabits = useMemo(
+    () =>
+      sortedHabits.filter((h) => isScheduledOnDate(h.daysOfWeek, selectedDate)),
+    [sortedHabits, selectedDate],
   );
-  const visibleHabits = showUnscheduledHabits
-    ? [...scheduledHabits, ...unscheduledHabits]
-    : scheduledHabits;
+  const unscheduledHabits = useMemo(
+    () =>
+      sortedHabits.filter(
+        (h) => !isScheduledOnDate(h.daysOfWeek, selectedDate),
+      ),
+    [sortedHabits, selectedDate],
+  );
+  const visibleHabits = useMemo(
+    () => (showUnscheduledHabits ? sortedHabits : scheduledHabits),
+    [scheduledHabits, showUnscheduledHabits, sortedHabits],
+  );
+
+  const habitDrag = useLongPressReorder({
+    items: visibleHabits,
+    onReorder: onReorderHabits,
+  });
+  const taskDrag = useLongPressReorder({
+    items: dayTasks,
+    onReorder: (orderedIds) => onReorderDayTasks(selectedDate, orderedIds),
+  });
 
   const habitsDoneCount = scheduledHabits.filter((h) =>
     h.completedDates.includes(selectedDate),
@@ -103,43 +129,18 @@ export function TodayView({
   const progressPercent =
     totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100);
 
-  async function handleQuickSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = quickTitle.trim();
-    if (!trimmed || submitting) return;
-    setSubmitting(true);
-    try {
-      await onQuickCreateTask({
-        title: trimmed,
-        notes: null,
-        dueDate: selectedDate,
-        priority: quickPriority,
-        category: quickCategory,
-      });
-      setQuickTitle('');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
     <div className="w-full min-w-0 space-y-6">
-      {/* Tiêu đề ngày & điều hướng */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="break-words text-sm font-medium text-sky-700 dark:text-neutral-300">
-            {t.today.greeting}, {userName}
-          </p>
-          <h1 className="mt-0.5 break-words text-2xl font-bold tracking-tight text-slate-800 dark:text-neutral-100">
-            {isViewingToday ? t.today.titleToday : t.today.titleOtherDay}
-          </h1>
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500 dark:text-neutral-400">
-            <CalendarDays className="h-4 w-4 text-sky-600 dark:text-neutral-400" />
+      {/* Ngày hiện tại & điều hướng ngày */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-neutral-300">
+          <CalendarDays className="h-4 w-4 shrink-0 text-sky-600 dark:text-neutral-400" />
+          <span className="break-words">
             {formatDateForLocale(selectedDate, locale)}
-          </p>
-        </div>
+          </span>
+        </p>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => onSelectDate(addDays(selectedDate, -1))}
@@ -220,61 +221,6 @@ export function TodayView({
         </div>
       )}
 
-      {/* Thêm nhanh nhiệm vụ */}
-      <form
-        onSubmit={handleQuickSubmit}
-        className="rounded-xl border border-sky-200/80 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900"
-      >
-        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5 px-2">
-            <Plus className="h-5 w-5 shrink-0 text-sky-600 dark:text-neutral-300" />
-            <input
-              type="text"
-              value={quickTitle}
-              onChange={(e) => setQuickTitle(e.target.value)}
-              placeholder={t.today.quickAddPlaceholder(
-                formatShortDate(selectedDate),
-              )}
-              className="w-full bg-transparent py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 border-t border-sky-100 pt-2.5 sm:border-t-0 sm:pt-0 dark:border-neutral-800">
-            <select
-              value={quickCategory}
-              onChange={(e) => setQuickCategory(e.target.value as CategoryKey)}
-              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-            >
-              {CATEGORY_KEYS.map((key) => (
-                <option key={key} value={key}>
-                  {getCategoryLabel(key, locale)}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={quickPriority}
-              onChange={(e) => setQuickPriority(e.target.value as PriorityKey)}
-              className="min-w-0 max-w-full rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-            >
-              {PRIORITY_KEYS.map((key) => (
-                <option key={key} value={key}>
-                  {t.today.priorityPrefix} {getPriorityLabel(key, locale)}
-                </option>
-              ))}
-            </select>
-
-            <button
-              type="submit"
-              disabled={!quickTitle.trim() || submitting}
-              className="rounded-lg bg-sky-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-50 dark:bg-neutral-200 dark:text-neutral-900 dark:hover:bg-neutral-300"
-            >
-              {t.today.addBtn}
-            </button>
-          </div>
-        </div>
-      </form>
-
       {/* Hai cột chính */}
       <div className="grid min-w-0 gap-6 lg:grid-cols-2">
         {/* Thói quen lặp lại */}
@@ -313,6 +259,13 @@ export function TodayView({
             </div>
           </div>
 
+          {habitDrag.draggingId && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-neutral-300">
+              <GripVertical className="h-3.5 w-3.5" />
+              {t.today.draggingHint}
+            </p>
+          )}
+
           {visibleHabits.length === 0 ? (
             <div className="mt-5 rounded-lg border border-dashed border-sky-200 p-6 text-center dark:border-neutral-700">
               <p className="text-sm text-slate-500 dark:text-neutral-400">
@@ -329,7 +282,7 @@ export function TodayView({
             </div>
           ) : (
             <div className="mt-4 space-y-3">
-              {visibleHabits.map((habit) => {
+              {habitDrag.displayItems.map((habit) => {
                 const isDone = habit.completedDates.includes(selectedDate);
                 const colorTheme =
                   HABIT_COLORS[habit.color] ?? HABIT_COLORS.blue;
@@ -338,14 +291,30 @@ export function TodayView({
                   selectedDate,
                 );
                 const last7 = habit.stats.recentDays.slice(-7);
+                const isCharging = habitDrag.chargingId === habit.id;
+                const isDragging = habitDrag.draggingId === habit.id;
 
                 return (
                   <div
                     key={habit.id}
-                    className={`rounded-xl border p-3.5 transition ${
+                    ref={(el) => habitDrag.registerItemRef(habit.id, el)}
+                    {...habitDrag.getItemPointerHandlers(habit.id)}
+                    style={
+                      isDragging
+                        ? {
+                            transform: `translateY(${habitDrag.dragOffsetY}px) scale(1.015)`,
+                            transition: 'none',
+                          }
+                        : undefined
+                    }
+                    className={`long-press-card relative overflow-hidden rounded-xl border p-3.5 transition ${
                       isDone
                         ? 'border-sky-200 bg-sky-50/70 dark:border-neutral-700 dark:bg-neutral-800/70'
                         : 'border-sky-100 bg-white dark:border-neutral-800 dark:bg-neutral-900'
+                    } ${
+                      isDragging
+                        ? 'z-20 cursor-grabbing shadow-lg ring-2 ring-sky-400 dark:ring-neutral-400'
+                        : ''
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -380,6 +349,9 @@ export function TodayView({
                           </div>
 
                           <div className="flex shrink-0 items-center gap-1.5">
+                            {isDragging && (
+                              <GripVertical className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
+                            )}
                             <span className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:border-neutral-700 dark:bg-neutral-800 dark:text-amber-300">
                               <Flame className="h-3.5 w-3.5 text-orange-500" />
                               {habit.stats.currentStreak}
@@ -443,6 +415,13 @@ export function TodayView({
                         </div>
                       </div>
                     </div>
+
+                    {isCharging && (
+                      <div
+                        aria-hidden="true"
+                        className="animate-hold-charge pointer-events-none absolute right-0 bottom-0 left-0 h-1 bg-sky-400 dark:bg-neutral-400"
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -452,15 +431,33 @@ export function TodayView({
 
         {/* Nhiệm vụ trong ngày */}
         <section className="min-w-0 rounded-xl border border-sky-200/80 bg-white p-4 sm:p-5 dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="flex items-center gap-2">
-            <Check className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
-            <h2 className="font-bold text-slate-800 dark:text-neutral-100">
-              {t.today.tasksSection(formatShortDate(selectedDate))}
-            </h2>
-            <span className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-              {tasksDoneCount}/{dayTasks.length}
-            </span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
+              <h2 className="font-bold text-slate-800 dark:text-neutral-100">
+                {t.today.tasksSection(formatShortDate(selectedDate))}
+              </h2>
+              <span className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                {tasksDoneCount}/{dayTasks.length}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onOpenNewTask}
+              className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-800 transition hover:bg-sky-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t.today.createNew}
+            </button>
           </div>
+
+          {taskDrag.draggingId && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-sky-700 dark:text-neutral-300">
+              <GripVertical className="h-3.5 w-3.5" />
+              {t.today.draggingHint}
+            </p>
+          )}
 
           {dayTasks.length === 0 ? (
             <div className="mt-5 rounded-lg border border-dashed border-sky-200 p-6 text-center dark:border-neutral-700">
@@ -470,78 +467,109 @@ export function TodayView({
             </div>
           ) : (
             <div className="mt-4 space-y-2.5">
-              {dayTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className={`group flex items-start gap-3 rounded-xl border p-3.5 transition ${
-                    task.completed
-                      ? 'border-sky-100 bg-sky-50/40 opacity-75 dark:border-neutral-800 dark:bg-neutral-900/50'
-                      : 'border-sky-100 bg-white hover:border-sky-200 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onToggleTask(task)}
-                    aria-label={task.title}
-                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition ${
+              {taskDrag.displayItems.map((task) => {
+                const isCharging = taskDrag.chargingId === task.id;
+                const isDragging = taskDrag.draggingId === task.id;
+
+                return (
+                  <div
+                    key={task.id}
+                    ref={(el) => taskDrag.registerItemRef(task.id, el)}
+                    {...taskDrag.getItemPointerHandlers(task.id)}
+                    style={
+                      isDragging
+                        ? {
+                            transform: `translateY(${taskDrag.dragOffsetY}px) scale(1.015)`,
+                            transition: 'none',
+                          }
+                        : undefined
+                    }
+                    className={`group long-press-card relative flex items-start gap-3 overflow-hidden rounded-xl border p-3.5 transition ${
                       task.completed
-                        ? 'border-sky-600 bg-sky-600 text-white dark:border-neutral-200 dark:bg-neutral-200 dark:text-neutral-900'
-                        : 'border-sky-300 bg-white text-transparent hover:border-sky-500 dark:border-neutral-600 dark:bg-neutral-800'
+                        ? 'border-sky-100 bg-sky-50/40 opacity-75 dark:border-neutral-800 dark:bg-neutral-900/50'
+                        : 'border-sky-100 bg-white hover:border-sky-200 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700'
+                    } ${
+                      isDragging
+                        ? 'z-20 cursor-grabbing opacity-100 shadow-lg ring-2 ring-sky-400 dark:ring-neutral-400'
+                        : ''
                     }`}
                   >
-                    <Check className="h-3.5 w-3.5 stroke-[3]" />
-                  </button>
-
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={`break-words text-sm font-medium text-slate-800 dark:text-neutral-100 ${
-                        task.completed ? 'line-through text-slate-400 dark:text-neutral-500' : ''
+                    <button
+                      type="button"
+                      onClick={() => onToggleTask(task)}
+                      aria-label={task.title}
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition ${
+                        task.completed
+                          ? 'border-sky-600 bg-sky-600 text-white dark:border-neutral-200 dark:bg-neutral-200 dark:text-neutral-900'
+                          : 'border-sky-300 bg-white text-transparent hover:border-sky-500 dark:border-neutral-600 dark:bg-neutral-800'
                       }`}
                     >
-                      {task.title}
-                    </p>
-                    {task.notes && (
-                      <p className="mt-1 line-clamp-2 break-words text-xs text-slate-500 dark:text-neutral-400">
-                        {task.notes}
-                      </p>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <span
-                        className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${CATEGORIES[task.category].badgeClass}`}
-                      >
-                        {getCategoryLabel(task.category, locale)}
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITIES[task.priority].pillClass}`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-xs ${PRIORITIES[task.priority].dotClass}`}
-                        />
-                        {getPriorityLabel(task.priority, locale)}
-                      </span>
-                    </div>
-                  </div>
+                      <Check className="h-3.5 w-3.5 stroke-[3]" />
+                    </button>
 
-                  <div className="flex shrink-0 items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => onEditTask(task)}
-                      aria-label={t.today.editLabel}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-sky-50 hover:text-slate-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteTask(task.id)}
-                      aria-label={t.today.deleteLabel}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-rose-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`break-words text-sm font-medium text-slate-800 dark:text-neutral-100 ${
+                          task.completed
+                            ? 'line-through text-slate-400 dark:text-neutral-500'
+                            : ''
+                        }`}
+                      >
+                        {task.title}
+                      </p>
+                      {task.notes && (
+                        <p className="mt-1 line-clamp-2 break-words text-xs text-slate-500 dark:text-neutral-400">
+                          {task.notes}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${CATEGORIES[task.category].badgeClass}`}
+                        >
+                          {getCategoryLabel(task.category, locale)}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${PRIORITIES[task.priority].pillClass}`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-xs ${PRIORITIES[task.priority].dotClass}`}
+                          />
+                          {getPriorityLabel(task.priority, locale)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+                      {isDragging && (
+                        <GripVertical className="h-4 w-4 text-sky-600 dark:text-neutral-300" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onEditTask(task)}
+                        aria-label={t.today.editLabel}
+                        className="rounded-md p-1.5 text-slate-400 hover:bg-sky-50 hover:text-slate-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTask(task.id)}
+                        aria-label={t.today.deleteLabel}
+                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-rose-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {isCharging && (
+                      <div
+                        aria-hidden="true"
+                        className="animate-hold-charge pointer-events-none absolute right-0 bottom-0 left-0 h-1 bg-sky-400 dark:bg-neutral-400"
+                      />
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

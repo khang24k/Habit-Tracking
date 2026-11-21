@@ -123,6 +123,7 @@ export const createHabitSchema = z
     frequency: z.enum(FREQUENCY_KEYS).default('daily'),
     daysOfWeek: z.array(dayNumberSchema).optional(),
     reminderTime: reminderTimeSchema,
+    sortOrder: z.number().int().min(0).max(100000).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.frequency === 'custom') {
@@ -161,6 +162,7 @@ export const updateHabitSchema = z
     daysOfWeek: z.array(dayNumberSchema).optional(),
     reminderTime: reminderTimeSchema,
     archived: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(100000).optional(),
   })
   .superRefine((data, ctx) => {
     if (Object.keys(data).length === 0) {

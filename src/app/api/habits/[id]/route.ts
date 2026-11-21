@@ -43,6 +43,7 @@ export async function PATCH(
       if (parsed.reminderTime !== undefined)
         baseUpdates.reminderTime = parsed.reminderTime;
       if (parsed.archived !== undefined) baseUpdates.archived = parsed.archived;
+      if (parsed.sortOrder !== undefined) baseUpdates.sortOrder = parsed.sortOrder;
 
       if (compact) {
         const directDays =

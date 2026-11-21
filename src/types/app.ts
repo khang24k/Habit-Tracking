@@ -34,6 +34,7 @@ export interface HabitItem {
   daysOfWeek: number[];
   reminderTime: string | null;
   archived: boolean;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
   completedDates: string[];

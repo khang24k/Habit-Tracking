@@ -6,6 +6,7 @@ import type {
   PriorityKey,
 } from './constants';
 import { isValidDateKey } from './dates';
+import { compareHabitsForDisplay, compareTasksForDisplay } from './reorder';
 import { calculateHabitStats } from './streaks';
 
 export interface TaskCreatePayload {
@@ -34,6 +35,7 @@ export interface HabitCreatePayload {
   frequency: FrequencyKey;
   daysOfWeek: number[];
   reminderTime: string | null;
+  sortOrder?: number;
 }
 
 export interface HabitUpdatePatch {
@@ -45,6 +47,7 @@ export interface HabitUpdatePatch {
   daysOfWeek?: number[];
   reminderTime?: string | null;
   archived?: boolean;
+  sortOrder?: number;
 }
 
 export type QueuedMutation =
@@ -322,6 +325,9 @@ export function enqueueMutation(
               : {}),
             ...(remainingPatch.reminderTime !== undefined
               ? { reminderTime: remainingPatch.reminderTime }
+              : {}),
+            ...(remainingPatch.sortOrder !== undefined
+              ? { sortOrder: remainingPatch.sortOrder }
               : {}),
           };
           next[createIdx] = { ...createOp, payload: nextPayload };
@@ -649,6 +655,7 @@ export function buildOptimisticHabit(
     daysOfWeek: [...payload.daysOfWeek],
     reminderTime: payload.reminderTime,
     archived: false,
+    sortOrder: payload.sortOrder ?? 0,
     createdAt: nowIso,
     updatedAt: nowIso,
     completedDates: [],
@@ -669,6 +676,7 @@ export function applyQueuedOpsToState(
     daysOfWeek: [...h.daysOfWeek],
     completedDates: [...h.completedDates],
   }));
+  let hasTaskSortOrderUpdate = false;
 
   for (const op of queue) {
     switch (op.type) {
@@ -683,6 +691,9 @@ export function applyQueuedOpsToState(
       }
 
       case 'task:update': {
+        if (op.patch.sortOrder !== undefined) {
+          hasTaskSortOrderUpdate = true;
+        }
         nextTasks = nextTasks.map((task) => {
           if (task.id !== op.taskId) return task;
           const nextCompleted =
@@ -767,6 +778,9 @@ export function applyQueuedOpsToState(
             ...(op.patch.archived !== undefined
               ? { archived: op.patch.archived }
               : {}),
+            ...(op.patch.sortOrder !== undefined
+              ? { sortOrder: op.patch.sortOrder }
+              : {}),
             updatedAt: op.createdAt,
             stats: calculateHabitStats(
               nextDaysOfWeek,
@@ -801,6 +815,11 @@ export function applyQueuedOpsToState(
       }
     }
   }
+
+  if (hasTaskSortOrderUpdate) {
+    nextTasks.sort(compareTasksForDisplay);
+  }
+  nextHabits.sort(compareHabitsForDisplay);
 
   return { tasks: nextTasks, habits: nextHabits };
 }

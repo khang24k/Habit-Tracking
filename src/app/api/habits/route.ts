@@ -31,7 +31,7 @@ export async function GET(request: Request) {
           .select()
           .from(habits)
           .where(habitWhere)
-          .orderBy(asc(habits.createdAt)),
+          .orderBy(asc(habits.sortOrder), asc(habits.createdAt)),
         db
           .select({
             habitId: habitCompletions.habitId,
@@ -92,6 +92,7 @@ export async function POST(request: Request) {
           frequency: parsed.frequency,
           daysOfWeek: parsed.daysOfWeek,
           reminderTime: parsed.reminderTime ?? null,
+          sortOrder: parsed.sortOrder ?? 0,
         })
         .returning();
       return inserted;

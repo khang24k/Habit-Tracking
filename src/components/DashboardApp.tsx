@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { computeClientStats } from '@/lib/client-stats';
 import { getTodayDateKey } from '@/lib/dates';
+import { applyDayTaskReorder, applyHabitReorder } from '@/lib/reorder';
 import { calculateHabitStats } from '@/lib/streaks';
 import {
   applyQueuedOpsToState,
@@ -522,6 +523,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
                     daysOfWeek: nextDays,
                     reminderTime: serverFields.reminderTime,
                     archived: serverFields.archived,
+                    sortOrder: serverFields.sortOrder,
                     updatedAt: serverFields.updatedAt,
                     stats: calculateHabitStats(
                       nextDays,
@@ -916,10 +918,17 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
 
     if (!resolvedId) {
       const tempId = createTempId('habit');
+      const maxSortOrder = habitsRef.current.reduce(
+        (max, h) => Math.max(max, h.sortOrder),
+        0,
+      );
+      const nextSortOrder = maxSortOrder > 0 ? maxSortOrder + 1 : 0;
+      const createPayload =
+        nextSortOrder > 0 ? { ...payload, sortOrder: nextSortOrder } : payload;
       const optimisticHabit = buildOptimisticHabit(
         tempId,
         initialUser.id,
-        payload,
+        createPayload,
         todayKeyRef.current,
         nowIso,
       );
@@ -928,7 +937,7 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
         opId: createOpId(),
         type: 'habit:create',
         tempId,
-        payload,
+        payload: createPayload,
         createdAt: nowIso,
       });
     } else {
@@ -1043,6 +1052,44 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
       baseArchived: prevArchived,
       createdAt: nowIso,
     });
+  }
+
+  function handleReorderHabits(orderedVisibleIds: string[]) {
+    const result = applyHabitReorder(habitsRef.current, orderedVisibleIds);
+    setHabitsSynced(result.habits);
+    if (result.changed.length === 0) return;
+
+    const nowIso = new Date().toISOString();
+    for (const item of result.changed) {
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'habit:update',
+        habitId: resolveEntityId(item.id),
+        patch: { sortOrder: item.sortOrder },
+        createdAt: nowIso,
+      });
+    }
+  }
+
+  function handleReorderDayTasks(dateKey: string, orderedTaskIds: string[]) {
+    const result = applyDayTaskReorder(
+      tasksRef.current,
+      dateKey,
+      orderedTaskIds,
+    );
+    setTasksSynced(result.tasks);
+    if (result.changed.length === 0) return;
+
+    const nowIso = new Date().toISOString();
+    for (const item of result.changed) {
+      enqueueAndPersist({
+        opId: createOpId(),
+        type: 'task:update',
+        taskId: resolveEntityId(item.id),
+        patch: { sortOrder: item.sortOrder },
+        createdAt: nowIso,
+      });
+    }
   }
 
   const navItems: {
@@ -1205,14 +1252,16 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
             <>
               {activeTab === 'today' && (
                 <TodayView
-                  userName={initialUser.name}
                   todayKey={todayKey}
                   selectedDate={selectedDate}
                   onSelectDate={setSelectedDate}
                   tasks={tasks}
                   habits={activeHabits}
-                  onQuickCreateTask={handleSaveTask}
                   onToggleTask={handleToggleTask}
+                  onOpenNewTask={() => {
+                    setEditingTask(null);
+                    setTaskModalOpen(true);
+                  }}
                   onEditTask={(task) => {
                     setEditingTask(task);
                     setTaskModalOpen(true);
@@ -1228,6 +1277,8 @@ export function DashboardApp({ initialUser }: DashboardAppProps) {
                     setEditingHabit(habit);
                     setHabitModalOpen(true);
                   }}
+                  onReorderHabits={handleReorderHabits}
+                  onReorderDayTasks={handleReorderDayTasks}
                 />
               )}
 

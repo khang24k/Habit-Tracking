@@ -72,11 +72,14 @@ export async function GET(request: Request) {
       : rows;
 
     filtered.sort((a, b) => {
-      if (a.completed !== b.completed) {
-        return a.completed ? 1 : -1;
-      }
       if (a.dueDate !== b.dueDate) {
         return a.dueDate.localeCompare(b.dueDate);
+      }
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      if (a.completed !== b.completed) {
+        return a.completed ? 1 : -1;
       }
       const wa = PRIORITIES[a.priority as PriorityKey]?.weight ?? 2;
       const wb = PRIORITIES[b.priority as PriorityKey]?.weight ?? 2;

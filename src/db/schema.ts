@@ -68,6 +68,7 @@ export const habits = pgTable(
       .default([0, 1, 2, 3, 4, 5, 6]),
     reminderTime: text('reminder_time'),
     archived: boolean('archived').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

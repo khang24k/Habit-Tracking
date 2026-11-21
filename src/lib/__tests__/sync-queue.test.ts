@@ -61,6 +61,7 @@ function makeHabit(overrides: Partial<HabitItem> = {}): HabitItem {
     daysOfWeek,
     reminderTime: null,
     archived: false,
+    sortOrder: 0,
     createdAt: '2026-11-20T08:00:00.000Z',
     updatedAt: '2026-11-20T08:00:00.000Z',
     completedDates,
@@ -387,4 +388,63 @@ test('applyQueuedOpsToState replays local queue cleanly on top of server snapsho
   assert.equal(merged.tasks[1].completed, true);
   assert.deepEqual(merged.habits[0].completedDates, ['2026-11-20']);
   assert.equal(merged.habits[0].stats.currentStreak, 1);
+});
+
+test('applyQueuedOpsToState replays sortOrder updates cleanly for tasks and habits', () => {
+  const serverTasks = [
+    makeTask({ id: 't-1', title: 'First', sortOrder: 1 }),
+    makeTask({ id: 't-2', title: 'Second', sortOrder: 2 }),
+  ];
+  const serverHabits = [
+    makeHabit({ id: 'h-1', title: 'Habit 1', sortOrder: 1 }),
+    makeHabit({ id: 'h-2', title: 'Habit 2', sortOrder: 2 }),
+  ];
+
+  const queue: QueuedMutation[] = [
+    {
+      opId: 'op-t1',
+      type: 'task:update',
+      taskId: 't-1',
+      patch: { sortOrder: 2 },
+      createdAt: '2026-11-20T11:00:00.000Z',
+    },
+    {
+      opId: 'op-t2',
+      type: 'task:update',
+      taskId: 't-2',
+      patch: { sortOrder: 1 },
+      createdAt: '2026-11-20T11:00:01.000Z',
+    },
+    {
+      opId: 'op-h1',
+      type: 'habit:update',
+      habitId: 'h-1',
+      patch: { sortOrder: 2 },
+      createdAt: '2026-11-20T11:00:02.000Z',
+    },
+    {
+      opId: 'op-h2',
+      type: 'habit:update',
+      habitId: 'h-2',
+      patch: { sortOrder: 1 },
+      createdAt: '2026-11-20T11:00:03.000Z',
+    },
+  ];
+
+  const merged = applyQueuedOpsToState(
+    serverTasks,
+    serverHabits,
+    queue,
+    'user-1',
+    '2026-11-20',
+  );
+
+  assert.deepEqual(
+    merged.tasks.map((t) => t.id),
+    ['t-2', 't-1'],
+  );
+  assert.deepEqual(
+    merged.habits.map((h) => h.id),
+    ['h-2', 'h-1'],
+  );
 });

@@ -163,7 +163,9 @@ export function AuthForm({ initialMode }: AuthFormProps) {
               minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={t.auth.passwordPlaceholder}
+              placeholder={
+                mode === 'register' ? t.auth.passwordPlaceholder : undefined
+              }
               className="mt-1.5 w-full rounded-lg border border-sky-200 bg-sky-50/30 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-sky-500 focus:bg-white dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:focus:border-neutral-500 dark:focus:bg-neutral-800"
             />
           </div>

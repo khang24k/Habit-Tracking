@@ -36,6 +36,7 @@ function makeHabit(overrides: Partial<HabitItem> = {}): HabitItem {
     daysOfWeek,
     reminderTime: null,
     archived: false,
+    sortOrder: 0,
     createdAt: '2026-11-20T01:00:00.000Z',
     updatedAt: '2026-11-20T01:00:00.000Z',
     completedDates,

@@ -138,11 +138,32 @@
   animation: flame-ember-rise 1.9s ease-out infinite;
 }
 
+@keyframes hold-charge {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-hold-charge {
+  transform-origin: left center;
+  animation: hold-charge 1820ms linear forwards;
+}
+
+.long-press-card {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-flame-sway,
   .animate-flame-flicker,
   .animate-flame-core,
-  .animate-flame-ember {
+  .animate-flame-ember,
+  .animate-hold-charge {
     animation: none;
   }
 }
